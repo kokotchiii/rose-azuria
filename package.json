@@ -1,0 +1,22 @@
+{
+  "name": "resto-depenses",
+  "private": true,
+  "version": "0.0.1",
+  "description": "Gestion des dépenses & factures pour restaurant — PC (Electron .exe) + iPhone (Expo) + Supabase + IA Claude",
+  "packageManager": "pnpm@9.0.0",
+  "scripts": {
+    "dev:desktop": "pnpm --filter @resto/desktop dev",
+    "dev:mobile": "pnpm --filter @resto/mobile start",
+    "build:desktop": "pnpm --filter @resto/desktop build",
+    "build:desktop:exe": "pnpm --filter @resto/desktop package",
+    "build:shared": "pnpm --filter @resto/shared build",
+    "supabase:start": "supabase start",
+    "supabase:stop": "supabase stop",
+    "supabase:reset": "supabase db reset",
+    "supabase:deploy:fn": "supabase functions deploy classify-document --no-verify-jwt",
+    "supabase:set:secret": "supabase secrets set ANTHROPIC_API_KEY"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0"
+  }
+}

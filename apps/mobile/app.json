@@ -1,0 +1,31 @@
+{
+  "expo": {
+    "name": "Rose",
+    "slug": "rose-azuria",
+    "version": "0.0.1",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "restodepenses",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.azuria.rose"
+    },
+    "android": {
+      "package": "com.azuria.rose"
+    },
+    "plugins": [
+      [
+        "expo-image-picker",
+        { "photosPermission": "Pour photographier vos factures." }
+      ],
+      [
+        "expo-camera",
+        { "cameraPermission": "Pour photographier vos factures." }
+      ]
+    ],
+    "extra": {
+      "eas": { "projectId": "TO_FILL_AFTER_EAS_INIT" }
+    }
+  }
+}

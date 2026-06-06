@@ -1,0 +1,22 @@
+node_modules
+dist
+dist-electron
+release
+.expo
+.expo-shared
+*.log
+.env
+.env.local
+.DS_Store
+.turbo
+.vite
+
+# Electron build artifacts
+out/
+*.exe
+*.dmg
+*.AppImage
+
+# Supabase local
+supabase/.branches
+supabase/.temp
