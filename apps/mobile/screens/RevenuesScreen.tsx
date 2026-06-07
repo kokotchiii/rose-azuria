@@ -163,10 +163,10 @@ function StatsView({
         <Empty icon="bar-chart-outline" text="Aucune recette sur cette période." />
       ) : (
         <>
-          {/* CA HT prioritaire (= brut), TTC à côté (= net encaissé) */}
+          {/* CA HT (net) prioritaire, TTC (brut) à côté */}
           <View style={styles.kpiRow}>
-            <Kpi label="CA HT (brut)" value={fmtEUR(st.ca)} tone="good" />
-            <Kpi label="CA TTC (net)" value={fmtEUR(win.caTTC)} />
+            <Kpi label="CA HT (net)" value={fmtEUR(st.ca)} tone="good" />
+            <Kpi label="CA TTC (brut)" value={fmtEUR(win.caTTC)} />
           </View>
           <View style={styles.kpiRow}>
             <Kpi label="TVA collectée" value={fmtEUR(win.tva)} tone="warn" />
@@ -525,9 +525,9 @@ function EntryView({ profile, items, defaultRate, reload, scrollToTop }: { profi
         )}
         {totalTTC > 0 && (
           <View style={styles.tvaPreview}>
-            <Text style={styles.tvaPreviewStrong}>Brut (HT) {fmtEUR(previewHT)}</Text>
-            <Text style={styles.muted}>+ TVA {fmtEUR(previewTVA)}</Text>
-            <Text style={styles.tvaPreviewStrong}>= Net (TTC) {fmtEUR(totalTTC)}</Text>
+            <Text style={styles.tvaPreviewStrong}>Brut (TTC) {fmtEUR(totalTTC)}</Text>
+            <Text style={styles.muted}>− TVA {fmtEUR(previewTVA)}</Text>
+            <Text style={styles.tvaPreviewStrong}>= Net (HT) {fmtEUR(previewHT)}</Text>
           </View>
         )}
 

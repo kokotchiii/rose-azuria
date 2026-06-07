@@ -68,6 +68,19 @@ export function caSeries(rows: RevenueRow[], g: Gran, amount: AmountFn = revenue
   return [...map.entries()].sort((a, b2) => (a[0] < b2[0] ? -1 : 1)).map(([, v]) => ({ label: v.label, value: v.value }));
 }
 
+// Regroupement générique d'une série { date, value } par granularité (utilisé aussi
+// pour les dépenses, qui ne sont pas des RevenueRow).
+export function bucketSeries(items: { date: string; value: number }[], g: Gran): Point[] {
+  const map = new Map<string, { label: string; value: number }>();
+  for (const it of items) {
+    const b = bucket(it.date, g);
+    const cur = map.get(b.key) ?? { label: b.label, value: 0 };
+    cur.value += it.value;
+    map.set(b.key, cur);
+  }
+  return [...map.entries()].sort((a, b2) => (a[0] < b2[0] ? -1 : 1)).map(([, v]) => ({ label: v.label, value: v.value }));
+}
+
 // Répartition du CA par jour de semaine (Lun→Dim).
 export function byWeekday(rows: RevenueRow[], amount: AmountFn = revenueTotal): Point[] {
   const sums = new Array(7).fill(0);
