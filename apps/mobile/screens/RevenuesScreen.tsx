@@ -125,6 +125,10 @@ function StatsView({ items, defaultRate, onChangeDefaultRate }: { items: Revenue
             <Kpi label="Couverts" value={String(st.covers)} />
           </View>
           <View style={styles.kpiRow}>
+            <Kpi label={`CA moyen / jour${basis === "ht" ? " (HT)" : ""}`} value={fmtEUR(st.avgPerDay)} />
+            <Kpi label="Couverts moyens / jour" value={st.avgCoversPerDay > 0 ? String(Math.round(st.avgCoversPerDay)) : "—"} />
+          </View>
+          <View style={styles.kpiRow}>
             <Kpi label={`Panier moyen / couvert${basis === "ht" ? " (HT)" : ""}`} value={st.covers > 0 ? fmtEUR(st.panier) : "—"} />
             <Kpi label="TVA collectée" value={fmtEUR(win.tva)} tone="warn" />
           </View>

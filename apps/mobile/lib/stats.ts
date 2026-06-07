@@ -80,6 +80,7 @@ export interface WindowStats {
   count: number;           // nb de jours-service
   days: number;            // nb de jours distincts avec recette
   avgPerDay: number;       // CA moyen par jour avec recette
+  avgCoversPerDay: number; // couverts moyens par jour avec recette
   bestDay: { date: string; value: number } | null;
 }
 
@@ -97,7 +98,13 @@ export function windowStats(rows: RevenueRow[], amount: AmountFn = revenueTotal)
   for (const [date, value] of byDay) if (!bestDay || value > bestDay.value) bestDay = { date, value };
   const days = byDay.size;
 
-  return { ca, covers, panier: covers > 0 ? ca / covers : 0, cash, cb, other, count: rows.length, days, avgPerDay: days > 0 ? ca / days : 0, bestDay };
+  return {
+    ca, covers, panier: covers > 0 ? ca / covers : 0, cash, cb, other,
+    count: rows.length, days,
+    avgPerDay: days > 0 ? ca / days : 0,
+    avgCoversPerDay: days > 0 ? covers / days : 0,
+    bestDay,
+  };
 }
 
 // ---------- Projections ----------
