@@ -444,6 +444,80 @@ export async function deleteTask(id: string): Promise<void> {
   if (error) throw error;
 }
 
+// ---------- Travaux & dépenses à prévoir ----------
+export type PlanStatus = "idea" | "planned" | "done";
+export interface PlannedExpense {
+  id: string;
+  label: string;
+  description: string | null;
+  estimated_amount: number;
+  category: string | null;
+  priority: TaskPriority;
+  target_date: string | null;
+  status: PlanStatus;
+}
+
+// Lecture résiliente : si la table n'est pas encore migrée, renvoie [].
+export async function fetchPlannedExpenses(): Promise<PlannedExpense[]> {
+  const { data, error } = await supabase
+    .from("planned_expenses")
+    .select("id, label, description, estimated_amount, category, priority, target_date, status")
+    .order("status", { ascending: true })
+    .order("priority", { ascending: false })
+    .order("target_date", { ascending: true, nullsFirst: false });
+  if (error) return []; // table absente / non déployée
+  return (data ?? []) as PlannedExpense[];
+}
+
+export async function createPlannedExpense(args: {
+  establishment_id: string;
+  label: string;
+  estimated_amount: number;
+  category: string | null;
+  priority: TaskPriority;
+  target_date: string | null;
+  status: PlanStatus;
+  created_by: string;
+}): Promise<void> {
+  const { error } = await supabase.from("planned_expenses").insert(args);
+  if (error) throw error;
+}
+
+export async function updatePlannedExpense(
+  id: string,
+  fields: Partial<{
+    label: string;
+    description: string | null;
+    estimated_amount: number;
+    category: string | null;
+    priority: TaskPriority;
+    target_date: string | null;
+    status: PlanStatus;
+  }>,
+): Promise<void> {
+  const { error } = await supabase.from("planned_expenses").update(fields).eq("id", id);
+  if (error) throw error;
+}
+
+export async function deletePlannedExpense(id: string): Promise<void> {
+  const { error } = await supabase.from("planned_expenses").delete().eq("id", id);
+  if (error) throw error;
+}
+
+// Épargne mensuelle estimée = (recettes − dépenses) moyennées sur les N derniers mois.
+export async function fetchMonthlyNet(months = 3): Promise<{ monthlyNet: number; revenue: number; expense: number }> {
+  const from = new Date();
+  from.setMonth(from.getMonth() - months);
+  const fromIso = from.toISOString().slice(0, 10);
+  const [{ data: exp }, { data: rev }] = await Promise.all([
+    supabase.from("expenses").select("amount_ttc").gte("expense_date", fromIso),
+    supabase.from("revenues").select("amount_cash, amount_cb, amount_other").gte("revenue_date", fromIso),
+  ]);
+  const expense = ((exp ?? []) as Array<{ amount_ttc: number }>).reduce((s, e) => s + Number(e.amount_ttc ?? 0), 0);
+  const revenue = ((rev ?? []) as Array<{ amount_cash: number; amount_cb: number; amount_other: number }>).reduce((s, r) => s + revenueTotal(r), 0);
+  return { monthlyNet: (revenue - expense) / months, revenue, expense };
+}
+
 // ---------- Coût IA du mois en cours (USD) ----------
 export async function fetchAiCostThisMonth(): Promise<{ total: number; count: number }> {
   const now = new Date();
