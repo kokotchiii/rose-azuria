@@ -1,15 +1,30 @@
 import { useEffect, useState } from "react";
-import { StyleSheet, Text, TextInput, View, Button, Alert } from "react-native";
+import {
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import { StatusBar } from "expo-status-bar";
+import { Ionicons } from "@expo/vector-icons";
+import type { Session } from "@supabase/supabase-js";
+import type { Profile } from "@resto/shared";
 import { supabase } from "./supabaseClient";
-
-// Phase 0 mobile : login Supabase, vérification du câblage. La capture photo
-// et l'envoi à l'IA arriveront en phase 4.
+import { Home } from "./Home";
+import { colors, radius, shadow, space, TOUCH, type } from "./theme";
 
 export default function App() {
   const [email, setEmail]       = useState("");
   const [password, setPassword] = useState("");
-  const [session, setSession]   = useState<unknown>(null);
+  const [session, setSession]   = useState<Session | null>(null);
+  const [profile, setProfile]   = useState<Profile | null>(null);
+  const [loadingProfile, setLoadingProfile] = useState(false);
+  const [signingIn, setSigningIn] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
@@ -17,50 +32,166 @@ export default function App() {
     return () => sub.subscription.unsubscribe();
   }, []);
 
+  // Charge le profil métier (establishment_id) dès qu'on a une session.
+  useEffect(() => {
+    if (!session) {
+      setProfile(null);
+      return;
+    }
+    setLoadingProfile(true);
+    supabase
+      .from("profiles")
+      .select("*")
+      .eq("id", session.user.id)
+      .single()
+      .then(({ data }) => {
+        setProfile(data as Profile | null);
+        setLoadingProfile(false);
+      });
+  }, [session]);
+
   async function signIn() {
+    setError(null);
+    setSigningIn(true);
     const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) Alert.alert("Erreur", error.message);
+    if (error) setError(error.message);
+    setSigningIn(false);
   }
 
+  // Connecté + profil prêt → navigation principale
+  if (session && profile) {
+    return <Home profile={profile} />;
+  }
+
+  // Connecté mais profil en cours de chargement / introuvable
   if (session) {
     return (
-      <View style={styles.container}>
-        <Text style={styles.h1}>Connecté ✅</Text>
-        <Text style={styles.muted}>Phase 0 — squelette mobile prêt.</Text>
-        <Button title="Se déconnecter" onPress={() => supabase.auth.signOut()} />
-        <StatusBar style="auto" />
+      <View style={[styles.screen, styles.center]}>
+        {loadingProfile ? (
+          <ActivityIndicator color={colors.primary} size="large" />
+        ) : (
+          <View style={styles.card}>
+            <Ionicons name="alert-circle-outline" size={40} color={colors.danger} />
+            <Text style={styles.cardTitle}>Aucun profil lié</Text>
+            <Text style={styles.muted}>Ce compte n'est rattaché à aucun établissement.</Text>
+            <Pressable
+              style={({ pressed }) => [styles.btn, styles.btnGhost, pressed && styles.pressed]}
+              onPress={() => supabase.auth.signOut()}
+            >
+              <Text style={styles.btnGhostText}>Se déconnecter</Text>
+            </Pressable>
+          </View>
+        )}
+        <StatusBar style="dark" />
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.h1}>Resto Dépenses</Text>
-      <Text style={styles.muted}>Connexion</Text>
-      <TextInput
-        style={styles.input}
-        autoCapitalize="none"
-        keyboardType="email-address"
-        placeholder="email"
-        value={email}
-        onChangeText={setEmail}
-      />
-      <TextInput
-        style={styles.input}
-        secureTextEntry
-        placeholder="mot de passe"
-        value={password}
-        onChangeText={setPassword}
-      />
-      <Button title="Se connecter" onPress={signIn} />
-      <StatusBar style="auto" />
-    </View>
+    <KeyboardAvoidingView
+      style={styles.screen}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+    >
+      <View style={[styles.center, { flex: 1, padding: space.xl }]}>
+        {/* Marque */}
+        <View style={styles.brand}>
+          <View style={styles.logo}>
+            <Ionicons name="restaurant" size={28} color={colors.white} />
+          </View>
+          <Text style={styles.brandName}>Rose</Text>
+          <Text style={styles.muted}>Gestion des dépenses</Text>
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Connexion</Text>
+
+          <View style={styles.field}>
+            <Text style={styles.label} nativeID="lbl-email">Email</Text>
+            <TextInput
+              style={styles.input}
+              accessibilityLabelledBy="lbl-email"
+              accessibilityLabel="Email"
+              autoCapitalize="none"
+              autoComplete="email"
+              keyboardType="email-address"
+              placeholder="vous@restaurant.fr"
+              placeholderTextColor={colors.textMuted}
+              value={email}
+              onChangeText={setEmail}
+            />
+          </View>
+
+          <View style={styles.field}>
+            <Text style={styles.label} nativeID="lbl-pwd">Mot de passe</Text>
+            <TextInput
+              style={styles.input}
+              accessibilityLabelledBy="lbl-pwd"
+              accessibilityLabel="Mot de passe"
+              secureTextEntry
+              placeholder="••••••••"
+              placeholderTextColor={colors.textMuted}
+              value={password}
+              onChangeText={setPassword}
+            />
+          </View>
+
+          {error && (
+            <View style={styles.errorBox} accessibilityLiveRegion="assertive">
+              <Ionicons name="warning-outline" size={18} color={colors.danger} />
+              <Text style={styles.errorText}>{error}</Text>
+            </View>
+          )}
+
+          <Pressable
+            style={({ pressed }) => [styles.btn, styles.btnPrimary, pressed && styles.pressed]}
+            onPress={signIn}
+            disabled={signingIn}
+            accessibilityRole="button"
+          >
+            {signingIn ? (
+              <ActivityIndicator color={colors.white} />
+            ) : (
+              <Text style={styles.btnPrimaryText}>Se connecter</Text>
+            )}
+          </Pressable>
+        </View>
+      </View>
+      <StatusBar style="dark" />
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 24, paddingTop: 80, gap: 12, backgroundColor: "#fff" },
-  h1:        { fontSize: 28, fontWeight: "600" },
-  muted:     { color: "#777", marginBottom: 12 },
-  input:     { borderWidth: 1, borderColor: "#ccc", borderRadius: 6, padding: 12, fontSize: 16 },
+  screen: { flex: 1, backgroundColor: colors.bg },
+  center: { justifyContent: "center", alignItems: "center" },
+  brand:  { alignItems: "center", marginBottom: space.xl, gap: space.xs },
+  logo: {
+    width: 64, height: 64, borderRadius: radius.lg, backgroundColor: colors.primary,
+    alignItems: "center", justifyContent: "center", marginBottom: space.sm, ...shadow.card,
+  },
+  brandName: { ...type.h1, color: colors.text },
+  muted: { ...type.small, color: colors.textMuted, textAlign: "center" },
+  card: {
+    width: "100%", maxWidth: 420, backgroundColor: colors.surface, borderRadius: radius.lg,
+    padding: space.xl, gap: space.lg, ...shadow.card, alignItems: "stretch",
+  },
+  cardTitle: { ...type.h2, color: colors.text },
+  field: { gap: space.xs },
+  label: { ...type.label, color: colors.textMuted },
+  input: {
+    borderWidth: 1, borderColor: colors.border, borderRadius: radius.md,
+    paddingHorizontal: space.md, minHeight: TOUCH, fontSize: 16, color: colors.text,
+    backgroundColor: colors.surface,
+  },
+  btn: { minHeight: TOUCH, borderRadius: radius.md, alignItems: "center", justifyContent: "center", paddingHorizontal: space.lg },
+  btnPrimary: { backgroundColor: colors.primary },
+  btnPrimaryText: { ...type.title, color: colors.white },
+  btnGhost: { backgroundColor: colors.chipBg, borderWidth: 1, borderColor: colors.border },
+  btnGhostText: { ...type.title, color: colors.text },
+  pressed: { opacity: 0.85 },
+  errorBox: {
+    flexDirection: "row", alignItems: "center", gap: space.sm, padding: space.md,
+    backgroundColor: colors.dangerBg, borderRadius: radius.md,
+  },
+  errorText: { ...type.small, color: colors.danger, flex: 1 },
 });

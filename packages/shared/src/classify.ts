@@ -8,10 +8,14 @@ import type { AiExtraction } from "./types";
 export interface UploadAndClassifyParams {
   client: SupabaseClient;
   establishmentId: string;
-  file: Blob | File;
+  // Web : Blob/File. React Native : on lit la photo en octets bruts (Uint8Array).
+  file: Blob | File | ArrayBuffer | Uint8Array;
   fileName: string;             // ex: "facture-metro.jpg"
   uploadedBy: string;            // profile.id
   categories?: string[];         // sinon DEFAULT_CATEGORIES
+  // Type MIME explicite. Obligatoire quand `file` n'est pas un Blob/File
+  // (un Uint8Array n'a pas de propriété `.type`), ex: "image/jpeg".
+  contentType?: string;
 }
 
 export interface UploadAndClassifyResult {
@@ -35,6 +39,7 @@ export async function uploadAndClassify(
 ): Promise<UploadAndClassifyResult> {
   const { client, establishmentId, file, fileName, uploadedBy } = params;
   const categories = params.categories ?? [...DEFAULT_CATEGORIES];
+  const contentType = params.contentType ?? (file as File).type ?? undefined;
 
   const storagePath = buildStoragePath(establishmentId, fileName);
 
@@ -42,7 +47,7 @@ export async function uploadAndClassify(
   const { error: upErr } = await client
     .storage
     .from("documents")
-    .upload(storagePath, file, { upsert: false, contentType: (file as File).type });
+    .upload(storagePath, file, { upsert: false, contentType });
   if (upErr) throw new Error(`upload_failed: ${upErr.message}`);
 
   // 2) Crée la ligne `documents` en statut pending
@@ -51,7 +56,7 @@ export async function uploadAndClassify(
     .insert({
       establishment_id: establishmentId,
       storage_path: storagePath,
-      file_type: (file as File).type ?? null,
+      file_type: contentType ?? null,
       uploaded_by: uploadedBy,
       ai_status: "pending",
     })

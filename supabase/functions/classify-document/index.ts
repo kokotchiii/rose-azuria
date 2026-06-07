@@ -17,7 +17,11 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
 const SUPABASE_URL      = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const MODEL             = Deno.env.get("ANTHROPIC_MODEL") ?? "claude-sonnet-4-5-20250929";
+// Sonnet 4.6 : meilleur compromis vitesse/intelligence, supporte effort + prompt caching.
+// Pour aller PLUS VITE encore : ANTHROPIC_MODEL=claude-haiku-4-5 (moins précis sur factures complexes).
+const MODEL             = Deno.env.get("ANTHROPIC_MODEL") ?? "claude-sonnet-4-6";
+// effort : low (rapide, défaut) | medium | high. Monte d'un cran si des factures complexes passent mal.
+const EFFORT            = Deno.env.get("ANTHROPIC_EFFORT") ?? "low";
 
 const DEFAULT_CATEGORIES = [
   "Matières premières (food)",
@@ -51,6 +55,27 @@ function json(body: unknown, status = 200) {
     status,
     headers: { "Content-Type": "application/json", ...corsHeaders() },
   });
+}
+
+// Tarifs API Anthropic en USD / million de tokens (input, output).
+const PRICING: Record<string, { in: number; out: number }> = {
+  "claude-opus-4-8":   { in: 5, out: 25 },
+  "claude-sonnet-4-6": { in: 3, out: 15 },
+  "claude-sonnet-4-5": { in: 3, out: 15 },
+  "claude-haiku-4-5":  { in: 1, out: 5 },
+};
+
+// Coût estimé d'un appel à partir de l'objet `usage` renvoyé par l'API.
+function estimateCostUsd(model: string, usage: Record<string, number> | undefined): number {
+  const p = PRICING[model] ?? PRICING["claude-sonnet-4-6"];
+  const input = usage?.input_tokens ?? 0;
+  const output = usage?.output_tokens ?? 0;
+  const cacheRead = usage?.cache_read_input_tokens ?? 0;
+  const cacheWrite = usage?.cache_creation_input_tokens ?? 0;
+  // cache read ≈ 0.1× input, cache write ≈ 1.25× input
+  return (
+    (input * p.in + output * p.out + cacheRead * p.in * 0.1 + cacheWrite * p.in * 1.25) / 1_000_000
+  );
 }
 
 function bytesToBase64(bytes: Uint8Array): string {
@@ -92,6 +117,17 @@ Réponds UNIQUEMENT par un objet JSON valide (pas de texte avant ou après, pas 
   ],
   "confidence": number
 }
+
+IMPORTANT — le restaurant qui REÇOIT la facture est le CLIENT (destinataire). Tu extrais toujours les infos du FOURNISSEUR (émetteur du document), jamais celles du restaurant client.
+
+Règles d'ANCRAGE des champs (c'est ICI que se produisent les erreurs — lis très attentivement) :
+- "supplier_name" : raison sociale de l'ÉMETTEUR (en-tête, en haut, près du logo). JAMAIS le restaurant destinataire, JAMAIS "Azuria".
+- "supplier_siret" : SIRET à 14 chiffres du fournisseur. PAS le SIREN (9 chiffres), PAS le n° de TVA intracommunautaire, PAS un code client.
+- "document_date" : date d'ÉMISSION de la facture. PAS la date d'échéance, PAS la date de livraison (sauf si c'est un bon de livraison).
+- "invoice_number" : n° de FACTURE du fournisseur (libellé "Facture n°", "N° facture", "Invoice"). PAS un n° de commande, de bon de livraison, de client, ni un n° de TVA.
+- "amount_ttc" : le total FINAL à payer ("Total TTC", "Net à payer", "Montant dû", "Total à régler"), en général en bas / dernière page. JAMAIS un sous-total, un montant de ligne, ni le total HT.
+- "amount_ht" : total hors taxes. "amount_tva" : montant total de TVA (somme si plusieurs taux).
+- "tva_rate" : taux principal en % (ex 5.5, 10, 20) ; si plusieurs taux, le taux dominant.
 
 Règles strictes :
 - Si une valeur est illisible ou absente : null (NE JAMAIS inventer).
@@ -205,8 +241,17 @@ Deno.serve(async (req: Request) => {
       body: JSON.stringify({
         model: MODEL,
         max_tokens: 2000,
+        // Pas de réflexion étendue pour une extraction bornée → plus rapide.
+        thinking: { type: "disabled" },
+        // effort bas = moins de sur-réflexion = latence réduite (réglable via ANTHROPIC_EFFORT).
+        output_config: { effort: EFFORT },
+        // Prompt d'instructions placé en system + mis en cache : réutilisé d'un appel à l'autre.
+        system: [
+          { type: "text", text: buildPrompt(categories), cache_control: { type: "ephemeral" } },
+        ],
+        // Le message ne contient que l'image/PDF : seule partie qui change à chaque appel.
         messages: [
-          { role: "user", content: [source, { type: "text", text: buildPrompt(categories) }] },
+          { role: "user", content: [source, { type: "text", text: "Analyse ce justificatif et renvoie le JSON demandé." }] },
         ],
       }),
     });
@@ -237,6 +282,25 @@ Deno.serve(async (req: Request) => {
     validated = validateAiJson(parsed, categories);
   } catch (e) {
     return json({ error: "ai_output_invalid", details: String(e), raw: parsed }, 422);
+  }
+
+  // Suivi du coût (non bloquant) : establishment_id = 1er segment du storage_path.
+  try {
+    const establishmentId = storagePath.split("/")[0];
+    const usage = data?.usage as Record<string, number> | undefined;
+    if (establishmentId) {
+      await admin.from("ai_usage").insert({
+        establishment_id:   establishmentId,
+        model:              MODEL,
+        input_tokens:       usage?.input_tokens ?? 0,
+        output_tokens:      usage?.output_tokens ?? 0,
+        cache_read_tokens:  usage?.cache_read_input_tokens ?? 0,
+        cache_write_tokens: usage?.cache_creation_input_tokens ?? 0,
+        cost_usd:           estimateCostUsd(MODEL, usage),
+      });
+    }
+  } catch (_e) {
+    // Le suivi de coût ne doit jamais bloquer la réponse au client.
   }
 
   return json({ ok: true, result: validated });
