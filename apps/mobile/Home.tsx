@@ -13,10 +13,12 @@ import { ProductsScreen } from "./screens/ProductsScreen";
 import { RevenuesScreen } from "./screens/RevenuesScreen";
 import { TodosScreen } from "./screens/TodosScreen";
 import { ExportScreen } from "./screens/ExportScreen";
+import { ReimbursementsScreen } from "./screens/ReimbursementsScreen";
+import { EventsScreen } from "./screens/EventsScreen";
 import { Screen as ScreenScroll } from "./screens/ui";
 
 type Tab = "capture" | "expenses" | "dashboard" | "more";
-type SubKey = "revenues" | "suppliers" | "products" | "todos" | "export";
+type SubKey = "reimbursements" | "events" | "revenues" | "suppliers" | "products" | "todos" | "export";
 
 const TABS: { key: Tab; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { key: "capture", label: "Capturer", icon: "camera" },
@@ -26,6 +28,8 @@ const TABS: { key: Tab; label: string; icon: keyof typeof Ionicons.glyphMap }[] 
 ];
 
 const SUBS: { key: SubKey; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+  { key: "reimbursements", label: "Notes de frais", icon: "wallet-outline" },
+  { key: "events", label: "Événements", icon: "sparkles-outline" },
   { key: "revenues", label: "Recettes", icon: "cash-outline" },
   { key: "suppliers", label: "Fournisseurs", icon: "storefront-outline" },
   { key: "products", label: "Produits récurrents", icon: "cart-outline" },
@@ -38,6 +42,8 @@ const TITLES: Record<Tab | SubKey, string> = {
   expenses: "Dépenses",
   dashboard: "Tableau de bord",
   more: "Plus",
+  reimbursements: "Notes de frais",
+  events: "Événements",
   revenues: "Recettes",
   suppliers: "Fournisseurs",
   products: "Produits récurrents",
@@ -57,6 +63,8 @@ export function Home({ profile }: { profile: Profile }) {
     if (tab === "expenses") return <ExpensesScreen />;
     if (tab === "dashboard") return <DashboardScreen />;
     // tab === "more"
+    if (sub === "reimbursements") return <ReimbursementsScreen />;
+    if (sub === "events") return <EventsScreen profile={profile} />;
     if (sub === "revenues") return <RevenuesScreen profile={profile} />;
     if (sub === "suppliers") return <SuppliersScreen />;
     if (sub === "products") return <ProductsScreen />;

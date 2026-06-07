@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { Ionicons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { Session } from "@supabase/supabase-js";
 import type { Profile } from "@resto/shared";
 import { supabase } from "./supabaseClient";
@@ -25,11 +26,22 @@ export default function App() {
   const [loadingProfile, setLoadingProfile] = useState(false);
   const [signingIn, setSigningIn] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [remember, setRemember] = useState(true);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
     const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
     return () => sub.subscription.unsubscribe();
+  }, []);
+
+  // Pré-remplit l'email mémorisé (« se souvenir de moi »).
+  useEffect(() => {
+    AsyncStorage.multiGet(["rememberMe", "rememberedEmail"]).then((entries) => {
+      const map = Object.fromEntries(entries);
+      const on = map.rememberMe !== "0"; // coché par défaut
+      setRemember(on);
+      if (on && map.rememberedEmail) setEmail(map.rememberedEmail);
+    });
   }, []);
 
   // Charge le profil métier (establishment_id) dès qu'on a une session.
@@ -54,7 +66,15 @@ export default function App() {
     setError(null);
     setSigningIn(true);
     const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) setError(error.message);
+    if (error) {
+      setError(error.message);
+    } else {
+      // Mémorise (ou oublie) l'email selon la case cochée.
+      await AsyncStorage.multiSet([
+        ["rememberMe", remember ? "1" : "0"],
+        ["rememberedEmail", remember ? email.trim() : ""],
+      ]);
+    }
     setSigningIn(false);
   }
 
@@ -135,6 +155,19 @@ export default function App() {
             />
           </View>
 
+          <Pressable
+            style={styles.remember}
+            onPress={() => setRemember((v) => !v)}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: remember }}
+            accessibilityLabel="Se souvenir de moi"
+          >
+            <View style={[styles.checkbox, remember && styles.checkboxOn]}>
+              {remember && <Ionicons name="checkmark" size={16} color={colors.white} />}
+            </View>
+            <Text style={styles.rememberLabel}>Se souvenir de moi</Text>
+          </Pressable>
+
           {error && (
             <View style={styles.errorBox} accessibilityLiveRegion="assertive">
               <Ionicons name="warning-outline" size={18} color={colors.danger} />
@@ -189,6 +222,13 @@ const styles = StyleSheet.create({
   btnGhost: { backgroundColor: colors.chipBg, borderWidth: 1, borderColor: colors.border },
   btnGhostText: { ...type.title, color: colors.text },
   pressed: { opacity: 0.85 },
+  remember: { flexDirection: "row", alignItems: "center", gap: space.sm, minHeight: TOUCH, marginTop: -space.xs },
+  checkbox: {
+    width: 24, height: 24, borderRadius: radius.sm, borderWidth: 1.5, borderColor: colors.border,
+    alignItems: "center", justifyContent: "center", backgroundColor: colors.surface,
+  },
+  checkboxOn: { backgroundColor: colors.primary, borderColor: colors.primary },
+  rememberLabel: { ...type.small, color: colors.text },
   errorBox: {
     flexDirection: "row", alignItems: "center", gap: space.sm, padding: space.md,
     backgroundColor: colors.dangerBg, borderRadius: radius.md,

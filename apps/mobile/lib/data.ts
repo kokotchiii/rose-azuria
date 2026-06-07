@@ -28,6 +28,206 @@ export async function fetchExpenses(filters: {
   return (data ?? []) as unknown as ExpenseListItem[];
 }
 
+// ---------- Notes de frais (remboursements) ----------
+// Regroupe les dépenses avancées par un membre (reimbursable) par payeur,
+// pour voir en temps réel qui doit se faire rembourser combien et pour quoi.
+export interface PayerReimbursement {
+  payer_id: string;
+  payer_name: string;
+  items: ExpenseListItem[];
+  total: number;
+}
+
+const REIMB_SELECT =
+  "*, supplier:suppliers(name), category:categories(label), payer:profiles!expenses_payer_id_fkey(full_name)";
+
+function groupByPayer(rows: ExpenseListItem[]): PayerReimbursement[] {
+  const map = new Map<string, PayerReimbursement>();
+  for (const e of rows) {
+    const pid = e.payer_id ?? "?";
+    const g = map.get(pid) ?? {
+      payer_id: pid,
+      payer_name: e.payer?.full_name ?? "Inconnu",
+      items: [],
+      total: 0,
+    };
+    g.items.push(e);
+    g.total += Number(e.amount_ttc ?? 0);
+    map.set(pid, g);
+  }
+  return [...map.values()].sort((a, b) => b.total - a.total);
+}
+
+// À rembourser : avancé par un membre, pas encore remboursé.
+export async function fetchPendingReimbursements(): Promise<PayerReimbursement[]> {
+  const { data, error } = await supabase
+    .from("expenses")
+    .select(REIMB_SELECT)
+    .eq("reimbursable", true)
+    .eq("reimbursed", false)
+    .order("expense_date", { ascending: false });
+  if (error) throw error;
+  return groupByPayer((data ?? []) as unknown as ExpenseListItem[]);
+}
+
+// Historique : déjà remboursé (archivé).
+export async function fetchReimbursedHistory(): Promise<PayerReimbursement[]> {
+  const { data, error } = await supabase
+    .from("expenses")
+    .select(REIMB_SELECT)
+    .eq("reimbursable", true)
+    .eq("reimbursed", true)
+    .order("reimbursed_at", { ascending: false });
+  if (error) throw error;
+  return groupByPayer((data ?? []) as unknown as ExpenseListItem[]);
+}
+
+// Marque une dépense comme remboursée (ou annule).
+export async function setExpenseReimbursed(expenseId: string, reimbursed: boolean): Promise<void> {
+  const { error } = await supabase
+    .from("expenses")
+    .update({ reimbursed, reimbursed_at: reimbursed ? new Date().toISOString() : null })
+    .eq("id", expenseId);
+  if (error) throw error;
+}
+
+// Marque TOUT le dû d'un membre comme remboursé en une fois.
+export async function settlePayer(payerId: string): Promise<void> {
+  const { error } = await supabase
+    .from("expenses")
+    .update({ reimbursed: true, reimbursed_at: new Date().toISOString() })
+    .eq("payer_id", payerId)
+    .eq("reimbursable", true)
+    .eq("reimbursed", false);
+  if (error) throw error;
+}
+
+// ---------- Événements (dépenses + recettes) ----------
+export interface EventRow {
+  id: string;
+  name: string;
+  event_date: string | null;
+  note: string | null;
+}
+
+export interface EventWithTotals extends EventRow {
+  revenue: number; // total recettes rattachées
+  expense: number; // total dépenses rattachées
+  net: number;     // recettes − dépenses
+}
+
+// Recette simplifiée pour l'affichage dans un événement (montant total agrégé).
+export interface EventRevenue {
+  id: string;
+  revenue_date: string;
+  service: string;
+  total: number;
+}
+
+// Liste des événements avec leur rentabilité.
+export async function fetchEvents(): Promise<EventWithTotals[]> {
+  const [{ data: events, error: e1 }, { data: exp, error: e2 }, { data: rev, error: e3 }] = await Promise.all([
+    supabase.from("events").select("id, name, event_date, note").order("event_date", { ascending: false, nullsFirst: false }),
+    supabase.from("expenses").select("event_id, amount_ttc").not("event_id", "is", null),
+    supabase.from("revenues").select("event_id, amount_cash, amount_cb, amount_other").not("event_id", "is", null),
+  ]);
+  if (e1) throw e1;
+  if (e2) throw e2;
+  if (e3) throw e3;
+
+  const expMap = new Map<string, number>();
+  for (const r of (exp ?? []) as Array<{ event_id: string; amount_ttc: number }>) {
+    expMap.set(r.event_id, (expMap.get(r.event_id) ?? 0) + Number(r.amount_ttc ?? 0));
+  }
+  const revMap = new Map<string, number>();
+  for (const r of (rev ?? []) as Array<{ event_id: string; amount_cash: number; amount_cb: number; amount_other: number }>) {
+    revMap.set(r.event_id, (revMap.get(r.event_id) ?? 0) + revenueTotal(r));
+  }
+  return ((events ?? []) as EventRow[]).map((ev) => {
+    const revenue = revMap.get(ev.id) ?? 0;
+    const expense = expMap.get(ev.id) ?? 0;
+    return { ...ev, revenue, expense, net: revenue - expense };
+  });
+}
+
+export async function createEvent(
+  establishmentId: string,
+  name: string,
+  eventDate: string | null,
+  createdBy: string,
+): Promise<EventRow> {
+  const { data, error } = await supabase
+    .from("events")
+    .insert({ establishment_id: establishmentId, name: name.trim(), event_date: eventDate, created_by: createdBy })
+    .select("id, name, event_date, note")
+    .single();
+  if (error || !data) throw error ?? new Error("event_create_failed");
+  return data as EventRow;
+}
+
+// Dépenses / recettes rattachées à un événement (eventId), ou libres (null).
+export async function fetchExpensesForEvent(eventId: string | null): Promise<ExpenseListItem[]> {
+  let q = supabase.from("expenses").select(REIMB_SELECT).order("expense_date", { ascending: false });
+  q = eventId === null ? q.is("event_id", null) : q.eq("event_id", eventId);
+  const { data, error } = await q;
+  if (error) throw error;
+  return (data ?? []) as unknown as ExpenseListItem[];
+}
+
+export async function fetchRevenuesForEvent(eventId: string | null): Promise<EventRevenue[]> {
+  let q = supabase
+    .from("revenues")
+    .select("id, revenue_date, service, amount_cash, amount_cb, amount_other")
+    .order("revenue_date", { ascending: false });
+  q = eventId === null ? q.is("event_id", null) : q.eq("event_id", eventId);
+  const { data, error } = await q;
+  if (error) throw error;
+  return ((data ?? []) as Array<{ id: string; revenue_date: string; service: string; amount_cash: number; amount_cb: number; amount_other: number }>)
+    .map((r) => ({ id: r.id, revenue_date: r.revenue_date, service: r.service, total: revenueTotal(r) }));
+}
+
+// Rattacher / détacher un item (eventId = null pour détacher).
+export async function setExpenseEvent(expenseId: string, eventId: string | null): Promise<void> {
+  const { error } = await supabase.from("expenses").update({ event_id: eventId }).eq("id", expenseId);
+  if (error) throw error;
+}
+
+export async function setRevenueEvent(revenueId: string, eventId: string | null): Promise<void> {
+  const { error } = await supabase.from("revenues").update({ event_id: eventId }).eq("id", revenueId);
+  if (error) throw error;
+}
+
+// Membres de l'établissement (pour le choix « qui a payé »).
+export interface Member {
+  id: string;
+  full_name: string | null;
+}
+
+export async function fetchMembers(): Promise<Member[]> {
+  const { data, error } = await supabase.from("profiles").select("id, full_name");
+  if (error) throw error;
+  return (data ?? []) as Member[];
+}
+
+// Change le payeur d'une dépense. payerId = null → la société (Azuria) a payé.
+// On aligne payment_source comme à la saisie : société = cb_pro, membre = cb_perso.
+export async function updateExpensePayer(
+  expenseId: string,
+  payerId: string | null,
+): Promise<void> {
+  const isCompany = payerId === null;
+  const { error } = await supabase
+    .from("expenses")
+    .update({
+      payer_id: payerId,
+      payment_source: isCompany ? "cb_pro" : "cb_perso",
+      // Société → plus rien à rembourser. (Le trigger remet true si cb_perso.)
+      ...(isCompany ? { reimbursable: false, reimbursed: false } : {}),
+    })
+    .eq("id", expenseId);
+  if (error) throw error;
+}
+
 // ---------- Fournisseurs (avec stats) ----------
 export interface SupplierStats {
   supplier: Supplier;
@@ -163,6 +363,27 @@ export async function upsertRevenue(args: {
 
 export function revenueTotal(r: Pick<RevenueRow, "amount_cash" | "amount_cb" | "amount_other">): number {
   return Number(r.amount_cash) + Number(r.amount_cb) + Number(r.amount_other);
+}
+
+// Modifier une recette existante (ex. changer le service soir → journée).
+export async function updateRevenue(
+  id: string,
+  fields: {
+    revenue_date: string;
+    service: Service;
+    amount_cash: number;
+    amount_cb: number;
+    amount_other: number;
+    covers: number | null;
+  },
+): Promise<void> {
+  const { error } = await supabase.from("revenues").update(fields).eq("id", id);
+  if (error) throw error;
+}
+
+export async function deleteRevenue(id: string): Promise<void> {
+  const { error } = await supabase.from("revenues").delete().eq("id", id);
+  if (error) throw error;
 }
 
 // ---------- Tâches (À faire) ----------

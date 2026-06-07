@@ -16,6 +16,7 @@ import * as ImagePicker from "expo-image-picker";
 import { uploadAndClassify, PAYMENT_SOURCES } from "@resto/shared";
 import type { AiExtraction, Category, PaymentSource, Profile } from "@resto/shared";
 import { supabase } from "./supabaseClient";
+import { DateField } from "./screens/ui";
 import { colors, radius, shadow, space, TOUCH, type } from "./theme";
 
 interface Props {
@@ -341,13 +342,7 @@ export function Capture({ profile }: Props) {
             <Text style={styles.cardTitle}>Détails</Text>
 
             <Field label="Date">
-              <TextInput
-                style={styles.input}
-                value={form.expense_date}
-                onChangeText={(v) => setForm({ ...form, expense_date: v })}
-                placeholder="AAAA-MM-JJ"
-                placeholderTextColor={colors.textMuted}
-              />
+              <DateField value={form.expense_date} onChange={(v) => setForm({ ...form, expense_date: v })} />
             </Field>
 
             <Field label="Fournisseur">

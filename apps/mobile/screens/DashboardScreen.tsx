@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { fetchAiCostThisMonth, fetchExpenses, type ExpenseListItem } from "../lib/data";
 import { fmtEUR, startOfMonthISO, todayISO } from "../lib/format";
+import { supabase } from "../supabaseClient";
 import { colors, radius, space, type } from "../theme";
 import { Card, Empty, Kpi, Loading, Screen, SectionTitle } from "./ui";
 
@@ -10,13 +11,24 @@ export function DashboardScreen() {
   const [aiCost, setAiCost] = useState<{ total: number; count: number }>({ total: 0, count: 0 });
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  const load = useCallback(() => {
     fetchExpenses({ from: startOfMonthISO(), to: todayISO() })
       .then(setExpenses)
       .catch(() => setExpenses([]))
       .finally(() => setLoading(false));
     fetchAiCostThisMonth().then(setAiCost).catch(() => setAiCost({ total: 0, count: 0 }));
   }, []);
+
+  useEffect(() => {
+    load();
+    // Temps réel : rafraîchit dès qu'une analyse IA (ai_usage) ou une dépense change.
+    const channel = supabase
+      .channel("dashboard-live")
+      .on("postgres_changes", { event: "*", schema: "public", table: "ai_usage" }, () => load())
+      .on("postgres_changes", { event: "*", schema: "public", table: "expenses" }, () => load())
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [load]);
 
   const totals = useMemo(() => {
     const total = expenses.reduce((s, e) => s + Number(e.amount_ttc), 0);
