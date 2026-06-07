@@ -25,3 +25,15 @@ export function startOfMonthISO(): string {
   const d = new Date();
   return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10);
 }
+
+export function daysAgoISO(n: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  return d.toISOString().slice(0, 10);
+}
+
+// "2026-06-07" -> "07/06" (étiquette courte pour les axes de graphiques)
+export function fmtDayShort(iso: string): string {
+  const [, m, day] = iso.slice(0, 10).split("-");
+  return day && m ? `${day}/${m}` : iso;
+}

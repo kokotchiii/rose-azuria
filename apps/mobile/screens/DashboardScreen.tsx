@@ -1,23 +1,30 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
-import { fetchAiCostThisMonth, fetchExpenses, type ExpenseListItem } from "../lib/data";
+import { fetchAiCostThisMonth, fetchExpenses, fetchPendingReimbursements, type ExpenseListItem } from "../lib/data";
 import { fmtEUR, startOfMonthISO, todayISO } from "../lib/format";
 import { supabase } from "../supabaseClient";
 import { colors, radius, space, type } from "../theme";
-import { Card, Empty, Kpi, Loading, Screen, SectionTitle } from "./ui";
+import { Card, Empty, Kpi, Loading, Pill, Screen, SectionTitle } from "./ui";
 
 export function DashboardScreen() {
   const [expenses, setExpenses] = useState<ExpenseListItem[]>([]);
   const [aiCost, setAiCost] = useState<{ total: number; count: number }>({ total: 0, count: 0 });
+  const [reimbTotal, setReimbTotal] = useState(0); // à rembourser, tout-temps
+  const [period, setPeriod] = useState<"month" | "all">("month");
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(() => {
-    fetchExpenses({ from: startOfMonthISO(), to: todayISO() })
+    const filters = period === "month" ? { from: startOfMonthISO(), to: todayISO() } : {};
+    fetchExpenses(filters)
       .then(setExpenses)
       .catch(() => setExpenses([]))
       .finally(() => setLoading(false));
     fetchAiCostThisMonth().then(setAiCost).catch(() => setAiCost({ total: 0, count: 0 }));
-  }, []);
+    // Le « à rembourser » est indépendant de la période : c'est tout ce qui reste dû.
+    fetchPendingReimbursements()
+      .then((groups) => setReimbTotal(groups.reduce((s, g) => s + g.total, 0)))
+      .catch(() => setReimbTotal(0));
+  }, [period]);
 
   useEffect(() => {
     load();
@@ -32,10 +39,7 @@ export function DashboardScreen() {
 
   const totals = useMemo(() => {
     const total = expenses.reduce((s, e) => s + Number(e.amount_ttc), 0);
-    const reimbursable = expenses
-      .filter((e) => e.reimbursable && !e.reimbursed)
-      .reduce((s, e) => s + Number(e.amount_ttc), 0);
-    return { total, reimbursable, count: expenses.length };
+    return { total, count: expenses.length };
   }, [expenses]);
 
   const byCategory = useMemo(() => {
@@ -53,12 +57,16 @@ export function DashboardScreen() {
 
   return (
     <Screen>
-      <Text style={styles.h1}>Mois en cours</Text>
-      <View style={styles.kpiRow}>
-        <Kpi label="Total dépenses" value={fmtEUR(totals.total)} />
-        <Kpi label="Dépenses" value={String(totals.count)} />
+      <View style={styles.periodRow}>
+        <Pill label="Ce mois" active={period === "month"} onPress={() => setPeriod("month")} />
+        <Pill label="Tout" active={period === "all"} onPress={() => setPeriod("all")} />
       </View>
-      <Kpi label="Notes de frais à rembourser" value={fmtEUR(totals.reimbursable)} tone="warn" />
+
+      <View style={styles.kpiRow}>
+        <Kpi label={period === "month" ? "Dépenses du mois" : "Total dépenses"} value={fmtEUR(totals.total)} />
+        <Kpi label="Nombre" value={String(totals.count)} />
+      </View>
+      <Kpi label="Notes de frais à rembourser (total)" value={fmtEUR(reimbTotal)} tone="warn" />
       <Kpi
         label={`Coût IA ce mois · ${aiCost.count} analyse${aiCost.count > 1 ? "s" : ""} (API, USD)`}
         value={`$${aiCost.total.toFixed(2)}`}
@@ -67,7 +75,7 @@ export function DashboardScreen() {
 
       <SectionTitle>Par catégorie</SectionTitle>
       {byCategory.length === 0 ? (
-        <Empty icon="pie-chart-outline" text="Aucune dépense ce mois-ci." />
+        <Empty icon="pie-chart-outline" text="Aucune dépense sur cette période." />
       ) : (
         <Card>
           {byCategory.map((c) => (
@@ -88,7 +96,7 @@ export function DashboardScreen() {
 }
 
 const styles = StyleSheet.create({
-  h1: { ...type.h2, color: colors.text },
+  periodRow: { flexDirection: "row", gap: space.sm },
   kpiRow: { flexDirection: "row", gap: space.md },
   barRow: { gap: 4, paddingVertical: 4 },
   barHead: { flexDirection: "row", justifyContent: "space-between", gap: space.sm },

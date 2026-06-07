@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import type { Profile } from "@resto/shared";
@@ -11,9 +11,10 @@ import {
   type RevenueRow,
   type Service,
 } from "../lib/data";
-import { fmtDate, fmtEUR, todayISO } from "../lib/format";
+import { daysAgoISO, fmtDate, fmtDayShort, fmtEUR, startOfMonthISO, todayISO } from "../lib/format";
 import { colors, radius, space, TOUCH, type } from "../theme";
-import { Card, DateField, Empty, Loading, Pill, Screen, SectionTitle } from "./ui";
+import { Card, DateField, Empty, Kpi, Loading, Pill, Screen, SectionTitle } from "./ui";
+import { BarList, LineChart, StackBar } from "./charts";
 
 const SERVICES: { key: Service; label: string }[] = [
   { key: "midi", label: "Midi" },
@@ -22,9 +23,117 @@ const SERVICES: { key: Service; label: string }[] = [
   { key: "autre", label: "Autre" },
 ];
 
+type View2 = "stats" | "entry";
+type StatsPeriod = "30j" | "month" | "all";
+
 export function RevenuesScreen({ profile }: { profile: Profile }) {
   const [items, setItems] = useState<RevenueRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [view, setView] = useState<View2>("stats");
+
+  function load() {
+    fetchRevenues()
+      .then(setItems)
+      .catch(() => setItems([]))
+      .finally(() => setLoading(false));
+  }
+  useEffect(load, []);
+
+  return (
+    <Screen>
+      <View style={styles.tabs}>
+        <Pill label="Statistiques" active={view === "stats"} onPress={() => setView("stats")} />
+        <Pill label="Saisie" active={view === "entry"} onPress={() => setView("entry")} />
+      </View>
+
+      {loading ? (
+        <Loading />
+      ) : view === "stats" ? (
+        <StatsView items={items} />
+      ) : (
+        <EntryView profile={profile} items={items} reload={() => { setLoading(true); load(); }} />
+      )}
+    </Screen>
+  );
+}
+
+// ---------- Vue Statistiques ----------
+function StatsView({ items }: { items: RevenueRow[] }) {
+  const [period, setPeriod] = useState<StatsPeriod>("30j");
+
+  const stats = useMemo(() => {
+    const from = period === "30j" ? daysAgoISO(29) : period === "month" ? startOfMonthISO() : "0000-00-00";
+    const rows = items.filter((r) => r.revenue_date >= from);
+    const ca = rows.reduce((s, r) => s + revenueTotal(r), 0);
+    const covers = rows.reduce((s, r) => s + (r.covers ?? 0), 0);
+    const cash = rows.reduce((s, r) => s + Number(r.amount_cash || 0), 0);
+    const cb = rows.reduce((s, r) => s + Number(r.amount_cb || 0), 0);
+    const other = rows.reduce((s, r) => s + Number(r.amount_other || 0), 0);
+
+    const svc = new Map<string, number>();
+    for (const r of rows) svc.set(r.service, (svc.get(r.service) ?? 0) + revenueTotal(r));
+    const byService = SERVICES.map((s) => ({ label: s.label, value: svc.get(s.key) ?? 0 })).filter((x) => x.value > 0);
+
+    const byDay = new Map<string, number>();
+    for (const r of rows) byDay.set(r.revenue_date, (byDay.get(r.revenue_date) ?? 0) + revenueTotal(r));
+    const series = [...byDay.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([d, v]) => ({ label: fmtDayShort(d), value: v }));
+
+    return { ca, covers, panier: covers > 0 ? ca / covers : 0, cash, cb, other, byService, series, count: rows.length };
+  }, [items, period]);
+
+  return (
+    <>
+      <View style={styles.periodRow}>
+        <Pill label="30 jours" active={period === "30j"} onPress={() => setPeriod("30j")} />
+        <Pill label="Ce mois" active={period === "month"} onPress={() => setPeriod("month")} />
+        <Pill label="Tout" active={period === "all"} onPress={() => setPeriod("all")} />
+      </View>
+
+      {stats.count === 0 ? (
+        <Empty icon="bar-chart-outline" text="Aucune recette sur cette période." />
+      ) : (
+        <>
+          <View style={styles.kpiRow}>
+            <Kpi label="Chiffre d'affaires" value={fmtEUR(stats.ca)} tone="good" />
+            <Kpi label="Couverts" value={String(stats.covers)} />
+          </View>
+          <Kpi label="Panier moyen / couvert" value={stats.covers > 0 ? fmtEUR(stats.panier) : "—"} />
+
+          <SectionTitle>Évolution du chiffre d'affaires</SectionTitle>
+          <Card>
+            {stats.series.length > 1 ? (
+              <LineChart data={stats.series} />
+            ) : (
+              <Text style={styles.muted}>Pas assez de jours pour tracer une courbe (au moins 2).</Text>
+            )}
+          </Card>
+
+          <SectionTitle>Répartition par service</SectionTitle>
+          <Card>
+            <BarList data={stats.byService} format={fmtEUR} />
+          </Card>
+
+          <SectionTitle>Moyens d'encaissement</SectionTitle>
+          <Card>
+            <StackBar
+              segments={[
+                { label: "Espèces", value: stats.cash, color: colors.success },
+                { label: "CB", value: stats.cb, color: colors.primary },
+                { label: "Autre", value: stats.other, color: colors.gold },
+              ]}
+            />
+            <Text style={[styles.muted, { marginTop: space.sm }]}>
+              Esp. {fmtEUR(stats.cash)} · CB {fmtEUR(stats.cb)} · Autre {fmtEUR(stats.other)}
+            </Text>
+          </Card>
+        </>
+      )}
+    </>
+  );
+}
+
+// ---------- Vue Saisie (formulaire + historique + édition) ----------
+function EntryView({ profile, items, reload }: { profile: Profile; items: RevenueRow[]; reload: () => void }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -36,14 +145,6 @@ export function RevenuesScreen({ profile }: { profile: Profile }) {
   const [other, setOther] = useState("");
   const [covers, setCovers] = useState("");
 
-  function load() {
-    fetchRevenues()
-      .then(setItems)
-      .catch(() => setItems([]))
-      .finally(() => setLoading(false));
-  }
-  useEffect(load, []);
-
   function resetForm() {
     setEditingId(null);
     setDate(todayISO());
@@ -52,7 +153,6 @@ export function RevenuesScreen({ profile }: { profile: Profile }) {
     setError(null);
   }
 
-  // Charge une recette existante dans le formulaire pour la modifier.
   function startEdit(r: RevenueRow) {
     setEditingId(r.id);
     setDate(r.revenue_date);
@@ -76,14 +176,10 @@ export function RevenuesScreen({ profile }: { profile: Profile }) {
         amount_other: Number(other) || 0,
         covers: covers ? Number(covers) : null,
       };
-      if (editingId) {
-        await updateRevenue(editingId, fields);
-      } else {
-        await upsertRevenue({ establishment_id: profile.establishment_id, note: null, created_by: profile.id, ...fields });
-      }
+      if (editingId) await updateRevenue(editingId, fields);
+      else await upsertRevenue({ establishment_id: profile.establishment_id, note: null, created_by: profile.id, ...fields });
       resetForm();
-      setLoading(true);
-      load();
+      reload();
     } catch (e: unknown) {
       const msg = String((e as Error).message ?? e);
       setError(msg.includes("duplicate") || msg.includes("unique")
@@ -100,8 +196,7 @@ export function RevenuesScreen({ profile }: { profile: Profile }) {
     try {
       await deleteRevenue(editingId);
       resetForm();
-      setLoading(true);
-      load();
+      reload();
     } catch (e: unknown) {
       setError(String((e as Error).message ?? e));
     } finally {
@@ -110,7 +205,7 @@ export function RevenuesScreen({ profile }: { profile: Profile }) {
   }
 
   return (
-    <Screen>
+    <>
       <Card>
         <SectionTitle>{editingId ? "Modifier la recette" : "Saisir une recette"}</SectionTitle>
         <View style={styles.row}>
@@ -161,7 +256,7 @@ export function RevenuesScreen({ profile }: { profile: Profile }) {
       </Card>
 
       <SectionTitle>Historique</SectionTitle>
-      {loading ? <Loading /> : items.length === 0 ? (
+      {items.length === 0 ? (
         <Empty icon="cash-outline" text="Aucune recette saisie." />
       ) : (
         items.map((r) => (
@@ -182,7 +277,7 @@ export function RevenuesScreen({ profile }: { profile: Profile }) {
           </Pressable>
         ))
       )}
-    </Screen>
+    </>
   );
 }
 
@@ -196,6 +291,10 @@ function Field({ label, children, flex }: { label: string; children: React.React
 }
 
 const styles = StyleSheet.create({
+  tabs: { flexDirection: "row", gap: space.sm },
+  periodRow: { flexDirection: "row", gap: space.sm },
+  kpiRow: { flexDirection: "row", gap: space.md },
+  muted: { ...type.small, color: colors.textMuted },
   row: { flexDirection: "row", gap: space.md },
   pills: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
   label: { ...type.label, color: colors.textMuted },

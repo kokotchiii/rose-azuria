@@ -20,4 +20,8 @@ config.resolver.nodeModulesPaths = [
 // 3) pnpm utilise des symlinks ; ne pas remonter la hiérarchie au-delà.
 config.resolver.disableHierarchicalLookup = true;
 
+// 4) Ignorer les dossiers temporaires de pnpm (`*_tmp_*`) : sinon, sous Windows
+//    sans watchman, le watcher de Metro plante quand pnpm les crée/supprime.
+config.resolver.blockList = /[\\/]node_modules[\\/][^\\/]*_tmp_[^\\/]*[\\/]/;
+
 module.exports = config;
