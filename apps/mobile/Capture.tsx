@@ -13,6 +13,8 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
+import * as DocumentPicker from "expo-document-picker";
+import * as FileSystem from "expo-file-system/legacy";
 import { uploadAndClassify, PAYMENT_SOURCES } from "@resto/shared";
 import type { AiExtraction, Category, PaymentSource, Profile } from "@resto/shared";
 import { supabase } from "./supabaseClient";
@@ -27,6 +29,7 @@ interface PickedImage {
   uri: string;
   bytes: Uint8Array;
   contentType: string;
+  name?: string; // nom de fichier (affiché pour un PDF, non prévisualisable en image)
 }
 
 // Sentinel : "c'est la société (Azuria) qui paie" → payer_id = null en base.
@@ -152,6 +155,24 @@ export function Capture({ profile }: Props) {
     );
   }
 
+  // Sélection d'un PDF (facture déjà au format PDF). L'edge function l'envoie à
+  // Claude en bloc « document » — aucune conversion nécessaire côté app.
+  async function pickPdf() {
+    setError(null);
+    const res = await DocumentPicker.getDocumentAsync({ type: "application/pdf", copyToCacheDirectory: true, multiple: false });
+    if (res.canceled || !res.assets?.length) return;
+    const asset = res.assets[0];
+    try {
+      const base64 = await FileSystem.readAsStringAsync(asset.uri, { encoding: FileSystem.EncodingType.Base64 });
+      setExtraction(null);
+      setDocumentId(null);
+      setSuccess(false);
+      setImage({ uri: asset.uri, bytes: base64ToBytes(base64), contentType: "application/pdf", name: asset.name });
+    } catch (e: unknown) {
+      setError(`Impossible de lire le PDF : ${String((e as Error).message ?? e)}`);
+    }
+  }
+
   function handlePicked(res: ImagePicker.ImagePickerResult) {
     if (res.canceled || !res.assets?.length) return;
     const asset = res.assets[0];
@@ -175,7 +196,7 @@ export function Capture({ profile }: Props) {
     setClassifying(true);
     setError(null);
     try {
-      const ext = image.contentType === "image/png" ? "png" : "jpg";
+      const ext = image.contentType === "application/pdf" ? "pdf" : image.contentType === "image/png" ? "png" : "jpg";
       const res = await uploadAndClassify({
         client: supabase,
         establishmentId: profile.establishment_id,
@@ -267,16 +288,23 @@ export function Capture({ profile }: Props) {
         {/* Carte capture */}
         <View style={styles.card}>
           {image ? (
-            <Image
-              source={{ uri: image.uri }}
-              style={styles.preview}
-              resizeMode="contain"
-              accessibilityLabel="Aperçu de la facture"
-            />
+            image.contentType === "application/pdf" ? (
+              <View style={styles.placeholder}>
+                <Ionicons name="document-text-outline" size={40} color={colors.primary} />
+                <Text style={styles.muted} numberOfLines={1}>{image.name ?? "Document PDF"}</Text>
+              </View>
+            ) : (
+              <Image
+                source={{ uri: image.uri }}
+                style={styles.preview}
+                resizeMode="contain"
+                accessibilityLabel="Aperçu de la facture"
+              />
+            )
           ) : (
             <View style={styles.placeholder}>
               <Ionicons name="receipt-outline" size={40} color={colors.secondary} />
-              <Text style={styles.muted}>Photographie une facture pour démarrer</Text>
+              <Text style={styles.muted}>Photo, galerie ou PDF pour démarrer</Text>
             </View>
           )}
 
@@ -298,6 +326,15 @@ export function Capture({ profile }: Props) {
             >
               <Ionicons name="images-outline" size={20} color={colors.text} />
               <Text style={styles.btnGhostText}>Galerie</Text>
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [styles.btn, styles.btnGhost, styles.flex1, pressed && styles.pressed]}
+              onPress={pickPdf}
+              accessibilityRole="button"
+              accessibilityLabel="Choisir un PDF"
+            >
+              <Ionicons name="document-outline" size={20} color={colors.text} />
+              <Text style={styles.btnGhostText}>PDF</Text>
             </Pressable>
           </View>
 
