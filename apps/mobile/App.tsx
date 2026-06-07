@@ -11,6 +11,8 @@ import {
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { Ionicons } from "@expo/vector-icons";
+import { useFonts, PlayfairDisplay_600SemiBold, PlayfairDisplay_700Bold } from "@expo-google-fonts/playfair-display";
+import { Karla_400Regular, Karla_500Medium, Karla_600SemiBold, Karla_700Bold } from "@expo-google-fonts/karla";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { Session } from "@supabase/supabase-js";
 import type { Profile } from "@resto/shared";
@@ -27,6 +29,15 @@ export default function App() {
   const [signingIn, setSigningIn] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [remember, setRemember] = useState(true);
+
+  const [fontsLoaded] = useFonts({
+    PlayfairDisplay_600SemiBold,
+    PlayfairDisplay_700Bold,
+    Karla_400Regular,
+    Karla_500Medium,
+    Karla_600SemiBold,
+    Karla_700Bold,
+  });
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
@@ -76,6 +87,16 @@ export default function App() {
       ]);
     }
     setSigningIn(false);
+  }
+
+  // Attend le chargement des polices pour éviter un flash de texte système.
+  if (!fontsLoaded) {
+    return (
+      <View style={[styles.screen, styles.center]}>
+        <ActivityIndicator color={colors.primary} size="large" />
+        <StatusBar style="dark" />
+      </View>
+    );
   }
 
   // Connecté + profil prêt → navigation principale

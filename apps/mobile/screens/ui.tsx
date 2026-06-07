@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { colors, radius, shadow, space, type } from "../theme";
+import { colors, fonts, radius, shadow, space, type } from "../theme";
 import { fmtDate } from "../lib/format";
 
 export function Screen({ children, scrollRef }: { children: React.ReactNode; refreshing?: boolean; onRefresh?: () => void; scrollRef?: React.RefObject<ScrollView | null> }) {
@@ -234,23 +234,23 @@ function CalendarModal({ visible, value, onClose, onPick }: { visible: boolean; 
 const s = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
   content: { padding: space.lg, gap: space.md, paddingBottom: space.xxl },
-  card: { backgroundColor: colors.surface, borderRadius: radius.lg, padding: space.lg, gap: space.sm, ...shadow.card },
+  card: { backgroundColor: colors.surface, borderRadius: radius.xl, padding: space.lg, gap: space.sm, borderWidth: 1, borderColor: colors.border, ...shadow.card },
   section: { ...type.label, color: colors.textMuted, marginTop: space.sm },
-  kpi: { flex: 1, minWidth: 140, backgroundColor: colors.surface, borderRadius: radius.lg, padding: space.lg, gap: 4 },
+  kpi: { flex: 1, minWidth: 150, backgroundColor: colors.surface, borderRadius: radius.xl, padding: space.lg, gap: 6, borderWidth: 1, borderColor: colors.border, ...shadow.card },
   kpiLabel: { ...type.small, color: colors.textMuted },
-  kpiValue: { fontSize: 22, fontWeight: "700" },
+  kpiValue: { ...type.display, fontSize: 27, letterSpacing: -0.3 },
   center: { paddingVertical: space.xxl, alignItems: "center", justifyContent: "center" },
   empty: { alignItems: "center", gap: space.sm, paddingVertical: space.xxl },
   emptyText: { ...type.small, color: colors.textMuted },
-  pill: { minHeight: 40, justifyContent: "center", paddingVertical: space.sm, paddingHorizontal: space.md, borderRadius: radius.pill, backgroundColor: colors.chipBg, borderWidth: 1, borderColor: colors.border },
+  pill: { minHeight: 40, justifyContent: "center", paddingVertical: space.sm, paddingHorizontal: space.lg, borderRadius: radius.pill, backgroundColor: colors.chipBg, borderWidth: 1, borderColor: colors.border },
   pillActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-  pillText: { ...type.small, color: colors.text },
-  pillTextActive: { color: colors.white, fontWeight: "600" },
+  pillText: { ...type.small, fontFamily: fonts.medium, color: colors.text },
+  pillTextActive: { fontFamily: fonts.semibold, color: colors.white },
 
   segment: { flexDirection: "row", backgroundColor: colors.chipBg, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, padding: 3, gap: 3 },
-  segmentItem: { flex: 1, minHeight: 38, alignItems: "center", justifyContent: "center", paddingHorizontal: 4, borderRadius: radius.sm },
+  segmentItem: { flex: 1, minHeight: 40, alignItems: "center", justifyContent: "center", paddingHorizontal: 4, borderRadius: radius.md - 3 },
   segmentItemActive: { backgroundColor: colors.primary, ...shadow.card },
-  segmentText: { ...type.small, color: colors.text, fontWeight: "600" },
+  segmentText: { ...type.small, fontFamily: fonts.semibold, color: colors.text },
   segmentTextActive: { color: colors.white },
 
   selectField: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: space.md, minHeight: 48, backgroundColor: colors.surface },

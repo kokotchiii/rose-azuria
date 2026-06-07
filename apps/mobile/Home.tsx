@@ -111,7 +111,9 @@ export function Home({ profile }: { profile: Profile }) {
               accessibilityState={{ selected: active }}
               accessibilityLabel={t.label}
             >
-              <Ionicons name={t.icon} size={22} color={active ? colors.primary : colors.textMuted} />
+              <View style={[styles.tabIcon, active && styles.tabIconActive]}>
+                <Ionicons name={t.icon} size={22} color={active ? colors.primary : colors.textMuted} />
+              </View>
               <Text style={[styles.tabLabel, active && styles.tabLabelActive]}>{t.label}</Text>
             </Pressable>
           );
@@ -148,16 +150,18 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.surface,
   },
   headerBtn: { minWidth: 64, minHeight: 40, justifyContent: "center" },
-  brand: { ...type.h2, color: colors.primary },
+  brand: { ...type.h1, fontSize: 24, color: colors.primary },
   title: { ...type.title, color: colors.text, flex: 1, textAlign: "center" },
   body: { flex: 1 },
   tabbar: {
     flexDirection: "row", borderTopWidth: 1, borderTopColor: colors.border,
-    backgroundColor: colors.surface, paddingTop: 6, paddingBottom: 6,
+    backgroundColor: colors.surface, paddingTop: 8, paddingBottom: 8,
   },
-  tab: { flex: 1, alignItems: "center", justifyContent: "center", gap: 2, minHeight: 52 },
-  tabLabel: { fontSize: 11, color: colors.textMuted },
-  tabLabelActive: { color: colors.primary, fontWeight: "600" },
+  tab: { flex: 1, alignItems: "center", justifyContent: "center", gap: 3, minHeight: 56 },
+  tabIcon: { paddingHorizontal: 18, paddingVertical: 4, borderRadius: radius.pill },
+  tabIconActive: { backgroundColor: colors.primarySoft },
+  tabLabel: { ...type.small, fontSize: 11, color: colors.textMuted },
+  tabLabelActive: { ...type.label, fontSize: 11, letterSpacing: 0.3, textTransform: "none", color: colors.primary },
   menuItem: {
     flexDirection: "row", alignItems: "center", gap: space.md,
     backgroundColor: colors.surface, borderRadius: radius.md, padding: space.lg,
