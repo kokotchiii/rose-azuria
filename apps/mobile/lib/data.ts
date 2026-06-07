@@ -333,7 +333,8 @@ export interface RevenueRow {
   amount_other: number;
   covers: number | null;
   note: string | null;
-  tva_rate: number | null; // taux TVA (%) ; null = taux par défaut de l'app
+  tva_rate: number | null;   // taux TVA (%) ; null = taux par défaut de l'app
+  tva_amount: number | null; // TVA collectée saisie en € ; prime sur tva_rate si renseigné
 }
 
 export async function fetchRevenues(filters: { from?: string; to?: string } = {}): Promise<RevenueRow[]> {
@@ -355,6 +356,7 @@ export async function upsertRevenue(args: {
   covers: number | null;
   note: string | null;
   tva_rate: number | null;
+  tva_amount: number | null;
   created_by: string;
 }): Promise<void> {
   const { error } = await supabase
@@ -373,15 +375,17 @@ export function serviceUnits(service: Service): number {
   return service === "journee" ? 2 : 1;
 }
 
-// CA HT = TTC / (1 + taux/100). Utilise le taux de la recette ou le défaut fourni.
-export function revenueHT(r: RevenueRow, defaultRate: number): number {
+// TVA collectée : montant saisi manuellement s'il existe, sinon calculé depuis le taux.
+export function revenueTVA(r: RevenueRow, defaultRate: number): number {
+  if (r.tva_amount != null) return Number(r.tva_amount);
   const rate = r.tva_rate ?? defaultRate;
-  return revenueTotal(r) / (1 + rate / 100);
+  const ttc = revenueTotal(r);
+  return ttc - ttc / (1 + rate / 100);
 }
 
-// TVA collectée = TTC − HT.
-export function revenueTVA(r: RevenueRow, defaultRate: number): number {
-  return revenueTotal(r) - revenueHT(r, defaultRate);
+// CA HT = TTC − TVA collectée.
+export function revenueHT(r: RevenueRow, defaultRate: number): number {
+  return revenueTotal(r) - revenueTVA(r, defaultRate);
 }
 
 // HT d'une dépense : TTC − TVA (si la TVA est connue, sinon HT inconnu → null).
@@ -401,6 +405,7 @@ export async function updateRevenue(
     amount_other: number;
     covers: number | null;
     tva_rate: number | null;
+    tva_amount: number | null;
   },
 ): Promise<void> {
   const { error } = await supabase.from("revenues").update(fields).eq("id", id);

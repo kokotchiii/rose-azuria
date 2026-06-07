@@ -393,6 +393,8 @@ function EntryView({ profile, items, defaultRate, reload, scrollToTop }: { profi
   const [other, setOther] = useState("");
   const [covers, setCovers] = useState("");
   const [rate, setRate] = useState<number>(defaultRate);
+  const [tvaMode, setTvaMode] = useState<"rate" | "amount">("rate");
+  const [tvaManual, setTvaManual] = useState("");
 
   function resetForm() {
     setEditingId(null);
@@ -400,6 +402,7 @@ function EntryView({ profile, items, defaultRate, reload, scrollToTop }: { profi
     setService("soir");
     setCash(""); setCb(""); setOther(""); setCovers("");
     setRate(defaultRate);
+    setTvaMode("rate"); setTvaManual("");
     setError(null);
   }
 
@@ -412,14 +415,16 @@ function EntryView({ profile, items, defaultRate, reload, scrollToTop }: { profi
     setOther(r.amount_other ? String(r.amount_other) : "");
     setCovers(r.covers != null ? String(r.covers) : "");
     setRate(r.tva_rate ?? defaultRate);
+    setTvaMode(r.tva_amount != null ? "amount" : "rate");
+    setTvaManual(r.tva_amount != null ? String(r.tva_amount) : "");
     setError(null);
     scrollToTop(); // remonte vers le formulaire pour montrer qu'on édite
   }
 
-  // Aperçu HT / TVA en direct à partir du total saisi et du taux choisi.
+  // Aperçu HT / TVA en direct : TVA saisie manuellement, ou calculée depuis le taux.
   const totalTTC = (Number(cash) || 0) + (Number(cb) || 0) + (Number(other) || 0);
-  const previewHT = totalTTC / (1 + rate / 100);
-  const previewTVA = totalTTC - previewHT;
+  const previewTVA = tvaMode === "amount" ? (Number(tvaManual) || 0) : totalTTC - totalTTC / (1 + rate / 100);
+  const previewHT = totalTTC - previewTVA;
 
   async function save() {
     setSaving(true);
@@ -432,7 +437,8 @@ function EntryView({ profile, items, defaultRate, reload, scrollToTop }: { profi
         amount_cb: Number(cb) || 0,
         amount_other: Number(other) || 0,
         covers: covers ? Number(covers) : null,
-        tva_rate: rate,
+        tva_rate: tvaMode === "rate" ? rate : null,
+        tva_amount: tvaMode === "amount" ? Number(tvaManual) || 0 : null,
       };
       if (editingId) await updateRevenue(editingId, fields);
       else await upsertRevenue({ establishment_id: profile.establishment_id, note: null, created_by: profile.id, ...fields });
@@ -487,13 +493,24 @@ function EntryView({ profile, items, defaultRate, reload, scrollToTop }: { profi
           </Field>
         </View>
 
-        <Field label="Taux de TVA">
+        <Field label="TVA collectée">
+          <Segmented<"rate" | "amount">
+            options={[{ key: "rate", label: "Par taux" }, { key: "amount", label: "Montant €" }]}
+            value={tvaMode}
+            onChange={setTvaMode}
+          />
+        </Field>
+        {tvaMode === "rate" ? (
           <Segmented<number>
             options={TVA_RATES.map((r) => ({ key: r, label: `${String(r).replace(".", ",")} %` }))}
             value={rate}
             onChange={setRate}
           />
-        </Field>
+        ) : (
+          <Field label="Montant de TVA collectée (€)">
+            <TextInput style={styles.input} value={tvaManual} onChangeText={setTvaManual} keyboardType="decimal-pad" placeholder="0" placeholderTextColor={colors.textMuted} />
+          </Field>
+        )}
         {totalTTC > 0 && (
           <View style={styles.tvaPreview}>
             <Text style={styles.muted}>TTC {fmtEUR(totalTTC)}</Text>
@@ -540,7 +557,8 @@ function EntryView({ profile, items, defaultRate, reload, scrollToTop }: { profi
               </View>
               <View style={styles.lineRow}>
                 <Text style={styles.meta}>
-                  HT {fmtEUR(revenueHT(r, defaultRate))} · TVA {String(r.tva_rate ?? defaultRate).replace(".", ",")} %
+                  HT {fmtEUR(revenueHT(r, defaultRate))} · TVA {fmtEUR(revenueTVA(r, defaultRate))}
+                  {r.tva_amount != null ? " (saisie)" : ""}
                   {r.covers != null ? ` · ${r.covers} couv.` : ""}
                 </Text>
                 <Ionicons name="create-outline" size={16} color={colors.secondary} />
