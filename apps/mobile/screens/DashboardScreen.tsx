@@ -30,7 +30,7 @@ export function DashboardScreen() {
   const [aiCost, setAiCost] = useState<{ total: number; count: number }>({ total: 0, count: 0 });
   const [reimbTotal, setReimbTotal] = useState(0); // à rembourser, tout-temps
   const [period, setPeriod] = useState<Period>("month");
-  const [basis, setBasis] = useState<Basis>("ttc");
+  const [basis, setBasis] = useState<Basis>("ht");
   const [defaultRate, setDefaultRate] = useState(TVA_DEFAULT);
   const [loading, setLoading] = useState(true);
 
@@ -105,7 +105,7 @@ export function DashboardScreen() {
         onChange={setPeriod}
       />
       <Segmented<Basis>
-        options={[{ key: "ttc", label: "TTC (brut)" }, { key: "ht", label: "HT (net)" }]}
+        options={[{ key: "ht", label: "HT (brut)" }, { key: "ttc", label: "TTC (net)" }]}
         value={basis}
         onChange={setBasis}
       />
