@@ -4,6 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import {
   fetchExpenses,
   fetchMembers,
+  setExpenseReimbursed,
   updateExpensePayer,
   type ExpenseListItem,
   type Member,
@@ -85,6 +86,22 @@ export function ExpensesScreen() {
     }
   }
 
+  // Bascule le statut « remboursé » (corriger une erreur : repasser en non-remboursé).
+  // La modale reste ouverte pour visualiser le changement.
+  async function toggleReimbursed(expense: ExpenseListItem, value: boolean) {
+    setSaving(true);
+    try {
+      await setExpenseReimbursed(expense.id, value);
+      const reimbursed_at = value ? new Date().toISOString() : null;
+      setItems((prev) => prev.map((it) => (it.id === expense.id ? { ...it, reimbursed: value, reimbursed_at } : it)));
+      setEditing((prev) => (prev && prev.id === expense.id ? { ...prev, reimbursed: value, reimbursed_at } : prev));
+    } catch {
+      // En cas d'échec, on laisse la modale ouverte pour réessayer.
+    } finally {
+      setSaving(false);
+    }
+  }
+
   if (loading) return <Loading />;
   if (!items.length) return <Screen><Empty icon="receipt-outline" text="Aucune dépense enregistrée." /></Screen>;
 
@@ -126,6 +143,7 @@ export function ExpensesScreen() {
             <View style={styles.row}>
               <Text style={styles.meta}>{fmtDate(e.expense_date)} · {e.category?.label ?? "—"}</Text>
               {e.reimbursable && !e.reimbursed && <Text style={styles.tag}>à rembourser</Text>}
+              {e.reimbursable && e.reimbursed && <Text style={styles.tagDone}>remboursé</Text>}
             </View>
             <View style={styles.payerRow}>
               <Ionicons name="person-circle-outline" size={16} color={colors.textMuted} />
@@ -164,6 +182,46 @@ export function ExpensesScreen() {
               ))}
             </View>
 
+            {/* Statut de remboursement (uniquement pour une avance d'un membre) */}
+            {editing?.reimbursable && (
+              <View style={styles.reimbSection}>
+                <View style={styles.sep} />
+                <View style={styles.reimbHead}>
+                  <Text style={styles.reimbTitle}>Remboursement</Text>
+                  {editing.reimbursed ? (
+                    <Text style={[styles.reimbStatus, { color: colors.success }]}>
+                      Remboursé{editing.reimbursed_at ? ` · ${fmtDate(editing.reimbursed_at)}` : ""}
+                    </Text>
+                  ) : (
+                    <Text style={[styles.reimbStatus, { color: colors.gold }]}>À rembourser</Text>
+                  )}
+                </View>
+                {editing.reimbursed ? (
+                  <Pressable
+                    style={({ pressed }) => [styles.reimbBtn, styles.reimbUndo, pressed && { opacity: 0.85 }]}
+                    onPress={() => !saving && toggleReimbursed(editing, false)}
+                    disabled={saving}
+                    accessibilityRole="button"
+                    accessibilityLabel="Repasser en à rembourser"
+                  >
+                    <Ionicons name="arrow-undo-outline" size={18} color={colors.danger} />
+                    <Text style={[styles.reimbBtnText, { color: colors.danger }]}>Annuler le remboursement</Text>
+                  </Pressable>
+                ) : (
+                  <Pressable
+                    style={({ pressed }) => [styles.reimbBtn, styles.reimbDone, pressed && { opacity: 0.85 }]}
+                    onPress={() => !saving && toggleReimbursed(editing, true)}
+                    disabled={saving}
+                    accessibilityRole="button"
+                    accessibilityLabel="Marquer remboursé"
+                  >
+                    <Ionicons name="checkmark-circle-outline" size={18} color={colors.white} />
+                    <Text style={[styles.reimbBtnText, { color: colors.white }]}>Marquer remboursé</Text>
+                  </Pressable>
+                )}
+              </View>
+            )}
+
             {saving && (
               <View style={styles.savingRow}>
                 <ActivityIndicator color={colors.primary} />
@@ -189,6 +247,7 @@ const styles = StyleSheet.create({
   amount: { ...type.title, color: colors.primary },
   meta: { ...type.small, color: colors.textMuted },
   tag: { ...type.small, color: colors.gold, fontWeight: "600" },
+  tagDone: { ...type.small, color: colors.success, fontWeight: "600" },
   payerRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 2 },
   payer: { ...type.small, color: colors.textMuted },
   note: { ...type.small, color: colors.textMuted },
@@ -201,6 +260,15 @@ const styles = StyleSheet.create({
   sheetTitle: { ...type.h2, color: colors.text },
   sheetSub: { ...type.small, color: colors.textMuted },
   chipsWrap: { flexDirection: "row", flexWrap: "wrap", gap: space.sm, marginTop: space.xs },
+  reimbSection: { gap: space.sm },
+  sep: { height: 1, backgroundColor: colors.border, marginTop: space.xs },
+  reimbHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.sm },
+  reimbTitle: { ...type.label, color: colors.textMuted },
+  reimbStatus: { ...type.small, fontWeight: "600" },
+  reimbBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: space.sm, minHeight: 44, borderRadius: radius.md },
+  reimbBtnText: { ...type.title },
+  reimbDone: { backgroundColor: colors.success },
+  reimbUndo: { backgroundColor: colors.dangerBg, borderWidth: 1, borderColor: colors.danger },
   savingRow: { flexDirection: "row", alignItems: "center", gap: space.sm },
   savingText: { ...type.small, color: colors.textMuted },
   cancelBtn: { minHeight: 44, alignItems: "center", justifyContent: "center", marginTop: space.xs },

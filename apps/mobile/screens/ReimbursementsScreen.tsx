@@ -130,12 +130,15 @@ export function ReimbursementsScreen() {
                       disabled={busy !== null}
                       accessibilityRole="button"
                       accessibilityLabel="Annuler le remboursement"
-                      style={({ pressed }) => [styles.itemBtn, pressed && { opacity: 0.8 }]}
+                      style={({ pressed }) => [styles.undoBtn, pressed && { opacity: 0.8 }]}
                     >
                       {busy === e.id ? (
-                        <ActivityIndicator size="small" color={colors.textMuted} />
+                        <ActivityIndicator size="small" color={colors.danger} />
                       ) : (
-                        <Ionicons name="arrow-undo-outline" size={22} color={colors.textMuted} />
+                        <>
+                          <Ionicons name="arrow-undo-outline" size={16} color={colors.danger} />
+                          <Text style={styles.undoText}>Annuler</Text>
+                        </>
                       )}
                     </Pressable>
                   )}
@@ -184,6 +187,11 @@ const styles = StyleSheet.create({
   itemMeta: { ...type.small, color: colors.textMuted },
   itemAmount: { ...type.title, color: colors.text },
   itemBtn: { minWidth: 36, minHeight: 36, alignItems: "center", justifyContent: "center" },
+  undoBtn: {
+    flexDirection: "row", alignItems: "center", gap: 4, minHeight: 36, paddingHorizontal: space.sm,
+    borderRadius: radius.pill, backgroundColor: colors.dangerBg, borderWidth: 1, borderColor: colors.danger,
+  },
+  undoText: { ...type.small, color: colors.danger, fontWeight: "600" },
 
   settleAll: {
     flexDirection: "row", alignItems: "center", justifyContent: "center", gap: space.sm,
