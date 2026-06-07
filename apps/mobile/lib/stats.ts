@@ -1,7 +1,7 @@
 // Agrégations et projections pour les statistiques de recettes.
 // Fonctions pures (testables), sans dépendance React.
 
-import { revenueTotal, type RevenueRow } from "./data";
+import { revenueTotal, serviceUnits, type RevenueRow } from "./data";
 
 export type Gran = "day" | "week" | "month" | "year";
 export type Horizon = "week" | "month" | "year";
@@ -172,7 +172,8 @@ export function project(rows: RevenueRow[], h: Horizon, growthPct: number, amoun
 
   // Base = services RÉELLEMENT saisis sur la période (jusqu'à aujourd'hui). Ainsi une
   // fermeture exceptionnelle d'un jour normalement ouvert ne dilue pas la moyenne.
-  const recorded = rows.reduce((n, r) => (r.revenue_date >= startIso && r.revenue_date < tomorrowIso ? n + 1 : n), 0);
+  // Une « journée » compte pour 2 services (midi + soir).
+  const recorded = rows.reduce((n, r) => (r.revenue_date >= startIso && r.revenue_date < tomorrowIso ? n + serviceUnits(r.service) : n), 0);
   // Services restant à venir d'ici la fin de période, au planning normal (« on sera ouvert »).
   const future = servicesBetween(tomorrowIso, endIso, cfg);
 

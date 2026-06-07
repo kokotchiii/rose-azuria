@@ -368,6 +368,11 @@ export function revenueTotal(r: Pick<RevenueRow, "amount_cash" | "amount_cb" | "
   return Number(r.amount_cash) + Number(r.amount_cb) + Number(r.amount_other);
 }
 
+// Nombre de services que représente une saisie : une « journée » couvre midi + soir (2).
+export function serviceUnits(service: Service): number {
+  return service === "journee" ? 2 : 1;
+}
+
 // CA HT = TTC / (1 + taux/100). Utilise le taux de la recette ou le défaut fourni.
 export function revenueHT(r: RevenueRow, defaultRate: number): number {
   const rate = r.tva_rate ?? defaultRate;
