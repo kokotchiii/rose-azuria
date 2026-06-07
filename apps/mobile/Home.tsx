@@ -16,7 +16,7 @@ import { PlannedScreen } from "./screens/PlannedScreen";
 import { ExportScreen } from "./screens/ExportScreen";
 import { ReimbursementsScreen } from "./screens/ReimbursementsScreen";
 import { EventsScreen } from "./screens/EventsScreen";
-import { Screen as ScreenScroll } from "./screens/ui";
+import { BrandLogo, Screen as ScreenScroll } from "./screens/ui";
 
 type Tab = "capture" | "expenses" | "dashboard" | "more";
 type SubKey = "reimbursements" | "events" | "revenues" | "planned" | "suppliers" | "products" | "todos" | "export";
@@ -87,7 +87,7 @@ export function Home({ profile }: { profile: Profile }) {
             <Ionicons name="chevron-back" size={24} color={colors.text} />
           </Pressable>
         ) : (
-          <View style={styles.headerBtn}><Text style={styles.brand}>Rose</Text></View>
+          <View style={styles.headerBtn}><BrandLogo size={36} /></View>
         )}
         <Text style={styles.title} numberOfLines={1}>{title}</Text>
         <Pressable onPress={() => supabase.auth.signOut()} hitSlop={12} accessibilityRole="button" accessibilityLabel="Se déconnecter" style={styles.headerBtn}>

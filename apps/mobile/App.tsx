@@ -18,6 +18,7 @@ import type { Session } from "@supabase/supabase-js";
 import type { Profile } from "@resto/shared";
 import { supabase } from "./supabaseClient";
 import { Home } from "./Home";
+import { BrandLogo } from "./screens/ui";
 import { colors, radius, shadow, space, TOUCH, type } from "./theme";
 
 export default function App() {
@@ -137,7 +138,7 @@ export default function App() {
         {/* Marque */}
         <View style={styles.brand}>
           <View style={styles.logo}>
-            <Ionicons name="restaurant" size={28} color={colors.white} />
+            <BrandLogo size={92} />
           </View>
           <Text style={styles.brandName}>Rose</Text>
           <Text style={styles.muted}>Gestion des dépenses</Text>
@@ -220,10 +221,11 @@ const styles = StyleSheet.create({
   center: { justifyContent: "center", alignItems: "center" },
   brand:  { alignItems: "center", marginBottom: space.xl, gap: space.xs },
   logo: {
-    width: 64, height: 64, borderRadius: radius.lg, backgroundColor: colors.primary,
-    alignItems: "center", justifyContent: "center", marginBottom: space.sm, ...shadow.card,
+    width: 128, height: 128, borderRadius: radius.xl, backgroundColor: colors.surface,
+    alignItems: "center", justifyContent: "center", marginBottom: space.md,
+    borderWidth: 1, borderColor: colors.border, ...shadow.lifted,
   },
-  brandName: { ...type.h1, color: colors.text },
+  brandName: { ...type.h1, fontSize: 32, color: colors.text },
   muted: { ...type.small, color: colors.textMuted, textAlign: "center" },
   card: {
     width: "100%", maxWidth: 420, backgroundColor: colors.surface, borderRadius: radius.lg,

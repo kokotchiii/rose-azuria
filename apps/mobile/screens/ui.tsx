@@ -1,9 +1,15 @@
 // Petit kit UI partagé par les écrans (style "Rose").
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, fonts, radius, shadow, space, type } from "../theme";
 import { fmtDate } from "../lib/format";
+
+// Logo du restaurant « Rose » (trait rose, fond transparent).
+const LOGO = require("../assets/logo.png");
+export function BrandLogo({ size = 48 }: { size?: number }) {
+  return <Image source={LOGO} style={{ width: size, height: size }} resizeMode="contain" accessibilityLabel="Logo Rose" />;
+}
 
 export function Screen({ children, scrollRef }: { children: React.ReactNode; refreshing?: boolean; onRefresh?: () => void; scrollRef?: React.RefObject<ScrollView | null> }) {
   return (
