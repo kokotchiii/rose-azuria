@@ -170,12 +170,20 @@ export function project(rows: RevenueRow[], h: Horizon, growthPct: number, amoun
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const tomorrowIso = isoOf(addDays(today, 1));
 
-  // Base = services RÉELLEMENT saisis sur la période (jusqu'à aujourd'hui). Ainsi une
-  // fermeture exceptionnelle d'un jour normalement ouvert ne dilue pas la moyenne.
-  // Une « journée » compte pour 2 services (midi + soir).
-  const recorded = rows.reduce((n, r) => (r.revenue_date >= startIso && r.revenue_date < tomorrowIso ? n + serviceUnits(r.service) : n), 0);
+  // Services RÉELLEMENT réalisés = toutes les saisies de la période (une saisie = un
+  // service déjà fait, puisqu'on saisit après coup). Une « journée » compte pour 2.
+  // Ainsi une fermeture exceptionnelle ne dilue pas la moyenne, et le décompte colle
+  // exactement au CA réalisé (même plage).
+  const inPeriod = rows.filter((r) => r.revenue_date >= startIso && r.revenue_date < endIso);
+  const recorded = inPeriod.reduce((n, r) => n + serviceUnits(r.service), 0);
+
+  // Jour le plus récent déjà saisi (pour ne pas recompter en « à venir » un jour saisi).
+  let lastLogged = "";
+  for (const r of inPeriod) if (r.revenue_date > lastLogged) lastLogged = r.revenue_date;
+  const afterLast = lastLogged ? isoOf(addDays(dateOnly(lastLogged), 1)) : tomorrowIso;
+  const futureStart = afterLast > tomorrowIso ? afterLast : tomorrowIso;
   // Services restant à venir d'ici la fin de période, au planning normal (« on sera ouvert »).
-  const future = servicesBetween(tomorrowIso, endIso, cfg);
+  const future = servicesBetween(futureStart, endIso, cfg);
 
   const elapsed = recorded;            // services réalisés
   const total = recorded + future;     // réalisés + à venir (toujours ≥ réalisés)
