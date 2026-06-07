@@ -11,13 +11,11 @@ export interface Point { label: string; value: number }
 // Sélecteur de montant d'une recette : TTC par défaut, ou HT selon la base choisie.
 export type AmountFn = (r: RevenueRow) => number;
 
-// ---------- Planning d'ouverture ----------
-// Nombre de services ouverts par jour de semaine (lundi = 0).
-// Midi + soir du lundi au vendredi (2), samedi soir (1), dimanche fermé (0) = 11 / semaine.
-export const SERVICES_PER_WEEKDAY = [2, 2, 2, 2, 2, 1, 0] as const;
-export const SERVICES_PER_WEEK = SERVICES_PER_WEEKDAY.reduce<number>((a, b) => a + b, 0); // 11
-// Date d'ouverture du restaurant : aucun service avant cette date.
-export const OPENING_DATE = "2026-06-02";
+// ---------- Planning d'ouverture (configurable) ----------
+// servicesPerWeekday : nb de services ouverts par jour de semaine (lundi = 0).
+// openingDate : aucun service compté avant cette date.
+export interface ScheduleCfg { servicesPerWeekday: number[]; openingDate: string }
+export const DEFAULT_SCHEDULE_CFG: ScheduleCfg = { servicesPerWeekday: [2, 2, 2, 2, 2, 1, 0], openingDate: "2026-06-02" };
 
 const MONTHS_SHORT = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."];
 const WEEKDAYS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
@@ -126,17 +124,17 @@ export interface Projection {
   total: number;      // services prévus sur la période
 }
 
-// Compte les services ouverts dans [startIso, endIso), borne basse relevée à la
+// Compte les services planifiés dans [startIso, endIso), borne basse relevée à la
 // date d'ouverture (pas de service avant). Tient compte du planning hebdomadaire.
-function servicesBetween(startIso: string, endIso: string): number {
-  const from = startIso < OPENING_DATE ? OPENING_DATE : startIso;
+function servicesBetween(startIso: string, endIso: string, cfg: ScheduleCfg): number {
+  const from = startIso < cfg.openingDate ? cfg.openingDate : startIso;
   if (from >= endIso) return 0;
   const end = dateOnly(endIso);
   let d = dateOnly(from);
   let n = 0;
   while (d < end) {
     const wd = (d.getDay() + 6) % 7; // lundi = 0
-    n += SERVICES_PER_WEEKDAY[wd];
+    n += cfg.servicesPerWeekday[wd] ?? 0;
     d = addDays(d, 1);
   }
   return n;
@@ -166,18 +164,23 @@ function sumBetween(rows: RevenueRow[], startIso: string, endIso: string, amount
   return s;
 }
 
-export function project(rows: RevenueRow[], h: Horizon, growthPct: number, amount: AmountFn = revenueTotal, now: Date = new Date()): Projection {
+export function project(rows: RevenueRow[], h: Horizon, growthPct: number, amount: AmountFn = revenueTotal, cfg: ScheduleCfg = DEFAULT_SCHEDULE_CFG, now: Date = new Date()): Projection {
   const { start, end, prevStart, prevEnd } = horizonBounds(h, now);
   const startIso = isoOf(start), endIso = isoOf(end);
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const tomorrowIso = isoOf(addDays(today, 1));
 
-  // Run-rate au prorata des services ouverts (et non des jours calendaires) :
-  // services écoulés (jusqu'à aujourd'hui inclus) vs services prévus sur la période.
-  const elapsed = servicesBetween(startIso, isoOf(addDays(today, 1)));
-  const total = servicesBetween(startIso, endIso);
+  // Base = services RÉELLEMENT saisis sur la période (jusqu'à aujourd'hui). Ainsi une
+  // fermeture exceptionnelle d'un jour normalement ouvert ne dilue pas la moyenne.
+  const recorded = rows.reduce((n, r) => (r.revenue_date >= startIso && r.revenue_date < tomorrowIso ? n + 1 : n), 0);
+  // Services restant à venir d'ici la fin de période, au planning normal (« on sera ouvert »).
+  const future = servicesBetween(tomorrowIso, endIso, cfg);
+
+  const elapsed = recorded;            // services réalisés
+  const total = recorded + future;     // réalisés + à venir (toujours ≥ réalisés)
 
   const actual = sumBetween(rows, startIso, endIso, amount);
-  const projected = elapsed > 0 ? (actual / elapsed) * total : actual;
+  const projected = recorded > 0 ? (actual / recorded) * total : 0;
   const prev = sumBetween(rows, isoOf(prevStart), isoOf(prevEnd), amount);
   const objective = prev * (1 + growthPct / 100);
 

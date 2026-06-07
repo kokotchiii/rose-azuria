@@ -13,12 +13,18 @@ import {
   type RevenueRow,
   type Service,
 } from "../lib/data";
-import { caSeries, byWeekday, project, windowStart, windowStats, type AmountFn, type Gran, type Horizon } from "../lib/stats";
+import { caSeries, byWeekday, project, windowStart, windowStats, type AmountFn, type Gran, type Horizon, type ScheduleCfg } from "../lib/stats";
 import { getGrowthTarget, setGrowthTarget } from "../lib/goals";
-import { getDefaultTvaRate, setDefaultTvaRate, TVA_DEFAULT, TVA_RATES } from "../lib/settings";
+import {
+  getDefaultTvaRate, setDefaultTvaRate, TVA_DEFAULT, TVA_RATES,
+  getOpenSchedule, setOpenSchedule, getOpeningDate, setOpeningDate,
+  servicesPerWeekdayOf, DEFAULT_OPEN_SCHEDULE, DEFAULT_OPENING_DATE, type DaySchedule,
+} from "../lib/settings";
 import { fmtDate, fmtEUR, todayISO } from "../lib/format";
 import { colors, radius, space, TOUCH, type } from "../theme";
-import { Card, DateField, Empty, Kpi, Loading, Screen, SectionTitle, Segmented } from "./ui";
+import { Card, DateField, Empty, Kpi, Loading, Pill, Screen, SectionTitle, Segmented } from "./ui";
+
+const WEEKDAYS_FULL = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"];
 import { BarList, LineChart, StackBar } from "./charts";
 
 const SERVICES: { key: Service; label: string }[] = [
@@ -49,9 +55,22 @@ export function RevenuesScreen({ profile }: { profile: Profile }) {
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<View2>("stats");
   const [defaultRate, setDefaultRate] = useState(TVA_DEFAULT);
+  const [schedule, setScheduleState] = useState<DaySchedule[]>(DEFAULT_OPEN_SCHEDULE);
+  const [openingDate, setOpeningDateState] = useState<string>(DEFAULT_OPENING_DATE);
 
-  useEffect(() => { getDefaultTvaRate().then(setDefaultRate); }, []);
+  useEffect(() => {
+    getDefaultTvaRate().then(setDefaultRate);
+    getOpenSchedule().then(setScheduleState);
+    getOpeningDate().then(setOpeningDateState);
+  }, []);
   function changeDefaultRate(r: number) { setDefaultRate(r); setDefaultTvaRate(r); }
+  function changeSchedule(s: DaySchedule[]) { setScheduleState(s); setOpenSchedule(s); }
+  function changeOpeningDate(d: string) { setOpeningDateState(d); setOpeningDate(d); }
+
+  const cfg: ScheduleCfg = useMemo(
+    () => ({ servicesPerWeekday: servicesPerWeekdayOf(schedule), openingDate }),
+    [schedule, openingDate],
+  );
 
   function load() {
     fetchRevenues()
@@ -72,7 +91,16 @@ export function RevenuesScreen({ profile }: { profile: Profile }) {
       {loading ? (
         <Loading />
       ) : view === "stats" ? (
-        <StatsView items={items} defaultRate={defaultRate} onChangeDefaultRate={changeDefaultRate} />
+        <StatsView
+          items={items}
+          defaultRate={defaultRate}
+          onChangeDefaultRate={changeDefaultRate}
+          cfg={cfg}
+          schedule={schedule}
+          openingDate={openingDate}
+          onChangeSchedule={changeSchedule}
+          onChangeOpeningDate={changeOpeningDate}
+        />
       ) : (
         <EntryView profile={profile} items={items} defaultRate={defaultRate} reload={() => { setLoading(true); load(); }} />
       )}
@@ -81,7 +109,18 @@ export function RevenuesScreen({ profile }: { profile: Profile }) {
 }
 
 // ---------- Vue Statistiques ----------
-function StatsView({ items, defaultRate, onChangeDefaultRate }: { items: RevenueRow[]; defaultRate: number; onChangeDefaultRate: (r: number) => void }) {
+function StatsView({
+  items, defaultRate, onChangeDefaultRate, cfg, schedule, openingDate, onChangeSchedule, onChangeOpeningDate,
+}: {
+  items: RevenueRow[];
+  defaultRate: number;
+  onChangeDefaultRate: (r: number) => void;
+  cfg: ScheduleCfg;
+  schedule: DaySchedule[];
+  openingDate: string;
+  onChangeSchedule: (s: DaySchedule[]) => void;
+  onChangeOpeningDate: (d: string) => void;
+}) {
   const [gran, setGran] = useState<Gran>("day");
   const [basis, setBasis] = useState<Basis>("ttc");
 
@@ -190,13 +229,70 @@ function StatsView({ items, defaultRate, onChangeDefaultRate }: { items: Revenue
         Appliqué aux recettes sans taux précis pour estimer le HT. Tu peux fixer un taux par recette à la saisie.
       </Text>
 
-      <ProjectionsCard items={items} amount={amount} basis={basis} />
+      <ProjectionsCard items={items} amount={amount} basis={basis} cfg={cfg} />
+
+      <ScheduleEditor
+        schedule={schedule}
+        openingDate={openingDate}
+        onChangeSchedule={onChangeSchedule}
+        onChangeOpeningDate={onChangeOpeningDate}
+      />
+    </>
+  );
+}
+
+// ---------- Éditeur de planning d'ouverture ----------
+function ScheduleEditor({
+  schedule, openingDate, onChangeSchedule, onChangeOpeningDate,
+}: {
+  schedule: DaySchedule[];
+  openingDate: string;
+  onChangeSchedule: (s: DaySchedule[]) => void;
+  onChangeOpeningDate: (d: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const total = servicesPerWeekdayOf(schedule).reduce((a, b) => a + b, 0);
+
+  function toggle(i: number, slot: "midi" | "soir") {
+    onChangeSchedule(schedule.map((d, idx) => (idx === i ? { ...d, [slot]: !d[slot] } : d)));
+  }
+
+  return (
+    <>
+      <SectionTitle>Planning d'ouverture</SectionTitle>
+      <Card>
+        <View style={styles.schedHead}>
+          <Text style={styles.muted}>{total} services / semaine · ouverture {fmtDate(openingDate)}</Text>
+          <Pressable onPress={() => setOpen((o) => !o)} accessibilityRole="button">
+            <Text style={styles.link}>{open ? "Fermer" : "Modifier"}</Text>
+          </Pressable>
+        </View>
+
+        {open && (
+          <>
+            {WEEKDAYS_FULL.map((wd, i) => (
+              <View key={wd} style={styles.schedRow}>
+                <Text style={styles.schedDay}>{wd}</Text>
+                <Pill label="Midi" active={schedule[i].midi} onPress={() => toggle(i, "midi")} />
+                <Pill label="Soir" active={schedule[i].soir} onPress={() => toggle(i, "soir")} />
+              </View>
+            ))}
+            <View style={{ gap: 4, marginTop: space.sm }}>
+              <Text style={styles.label}>Date d'ouverture</Text>
+              <DateField value={openingDate} onChange={onChangeOpeningDate} />
+            </View>
+            <Text style={styles.muted}>
+              Sert au calcul des projections : les services à venir sont comptés selon ce planning, et rien n'est compté avant la date d'ouverture.
+            </Text>
+          </>
+        )}
+      </Card>
     </>
   );
 }
 
 // ---------- Carte Projections + objectif ----------
-function ProjectionsCard({ items, amount, basis }: { items: RevenueRow[]; amount: AmountFn; basis: Basis }) {
+function ProjectionsCard({ items, amount, basis, cfg }: { items: RevenueRow[]; amount: AmountFn; basis: Basis; cfg: ScheduleCfg }) {
   const [horizon, setHorizon] = useState<Horizon>("month");
   const [growth, setGrowth] = useState(10);
 
@@ -209,7 +305,7 @@ function ProjectionsCard({ items, amount, basis }: { items: RevenueRow[]; amount
     });
   }
 
-  const p = useMemo(() => project(items, horizon, growth, amount), [items, horizon, growth, amount]);
+  const p = useMemo(() => project(items, horizon, growth, amount, cfg), [items, horizon, growth, amount, cfg]);
 
   const hLabel = HORIZONS.find((h) => h.key === horizon)?.label.toLowerCase() ?? "";
   const onTrack = p.objective <= 0 ? null : p.projected >= p.objective;
@@ -243,7 +339,7 @@ function ProjectionsCard({ items, amount, basis }: { items: RevenueRow[]; amount
         <View style={styles.sep} />
 
         <Text style={styles.muted}>
-          {p.elapsed}/{p.total} services écoulés · réalisé {fmtEUR(p.actual)}
+          {p.elapsed} services réalisés / {p.total} prévus · réalisé {fmtEUR(p.actual)}
         </Text>
 
         <ProjBar label="Projection fin de période" value={p.projected} scale={scale} color={colors.primary} />
@@ -467,6 +563,10 @@ const styles = StyleSheet.create({
   periodRow: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
   tvaPreview: { flexDirection: "row", flexWrap: "wrap", gap: space.md, alignItems: "baseline", paddingVertical: space.xs },
   tvaPreviewStrong: { ...type.title, color: colors.text },
+  schedHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.sm },
+  link: { ...type.small, color: colors.primary, fontWeight: "600" },
+  schedRow: { flexDirection: "row", alignItems: "center", gap: space.sm, paddingVertical: 4 },
+  schedDay: { ...type.body, color: colors.text, flex: 1 },
   kpiRow: { flexDirection: "row", gap: space.md },
   muted: { ...type.small, color: colors.textMuted },
   row: { flexDirection: "row", gap: space.md },
