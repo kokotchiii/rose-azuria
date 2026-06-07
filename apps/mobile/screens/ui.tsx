@@ -65,6 +65,73 @@ export function Pill({ label, active, onPress }: { label: string; active: boolea
   );
 }
 
+export interface Option<T> { key: T; label: string }
+
+// Contrôle segmenté : choix unique sur UNE seule ligne, segments à largeur égale.
+// Remplace les rangées de pills qui débordaient sur plusieurs lignes.
+export function Segmented<T extends string | number>({ options, value, onChange }: { options: Option<T>[]; value: T; onChange: (key: T) => void }) {
+  return (
+    <View style={s.segment}>
+      {options.map((o) => {
+        const active = o.key === value;
+        return (
+          <Pressable
+            key={String(o.key)}
+            onPress={() => onChange(o.key)}
+            accessibilityRole="button"
+            accessibilityState={{ selected: active }}
+            style={[s.segmentItem, active && s.segmentItemActive]}
+          >
+            <Text numberOfLines={1} style={[s.segmentText, active && s.segmentTextActive]}>{o.label}</Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+// Menu déroulant : pour les listes longues / variables (ex. filtre par catégorie).
+// Affiche la valeur courante + chevron ; ouvre une liste en modale.
+export function Select<T extends string | number>({
+  value,
+  options,
+  onChange,
+  placeholder = "Choisir",
+}: {
+  value: T | null;
+  options: Option<T>[];
+  onChange: (key: T) => void;
+  placeholder?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const current = options.find((o) => o.key === value);
+  return (
+    <>
+      <Pressable style={s.selectField} onPress={() => setOpen(true)} accessibilityRole="button" accessibilityLabel="Ouvrir le menu">
+        <Text style={[s.selectValue, !current && { color: colors.textMuted }]} numberOfLines={1}>{current?.label ?? placeholder}</Text>
+        <Ionicons name="chevron-down" size={18} color={colors.textMuted} />
+      </Pressable>
+      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
+        <Pressable style={s.selectBackdrop} onPress={() => setOpen(false)}>
+          <Pressable style={s.selectMenu} onPress={() => {}}>
+            <ScrollView style={{ maxHeight: 320 }}>
+              {options.map((o) => {
+                const active = o.key === value;
+                return (
+                  <Pressable key={String(o.key)} style={s.selectOption} onPress={() => { onChange(o.key); setOpen(false); }} accessibilityRole="button" accessibilityState={{ selected: active }}>
+                    <Text style={[s.selectOptionText, active && { color: colors.primary, fontWeight: "600" }]} numberOfLines={1}>{o.label}</Text>
+                    {active && <Ionicons name="checkmark" size={18} color={colors.primary} />}
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
+    </>
+  );
+}
+
 // ---------- Sélecteur de date (calendrier, sans dépendance native) ----------
 const MONTHS = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"];
 const WEEKDAYS = ["L", "M", "M", "J", "V", "S", "D"];
@@ -178,6 +245,19 @@ const s = StyleSheet.create({
   pillActive: { backgroundColor: colors.primary, borderColor: colors.primary },
   pillText: { ...type.small, color: colors.text },
   pillTextActive: { color: colors.white, fontWeight: "600" },
+
+  segment: { flexDirection: "row", backgroundColor: colors.chipBg, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, padding: 3, gap: 3 },
+  segmentItem: { flex: 1, minHeight: 38, alignItems: "center", justifyContent: "center", paddingHorizontal: 4, borderRadius: radius.sm },
+  segmentItemActive: { backgroundColor: colors.primary, ...shadow.card },
+  segmentText: { ...type.small, color: colors.text, fontWeight: "600" },
+  segmentTextActive: { color: colors.white },
+
+  selectField: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: space.md, minHeight: 48, backgroundColor: colors.surface },
+  selectValue: { fontSize: 16, color: colors.text, flex: 1 },
+  selectBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", alignItems: "center", justifyContent: "center", padding: space.xl },
+  selectMenu: { width: "100%", maxWidth: 360, backgroundColor: colors.surface, borderRadius: radius.lg, paddingVertical: space.xs, ...shadow.card },
+  selectOption: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.sm, paddingHorizontal: space.lg, minHeight: 48 },
+  selectOptionText: { fontSize: 16, color: colors.text, flex: 1 },
 
   dateField: {
     flexDirection: "row", alignItems: "center", gap: space.sm,

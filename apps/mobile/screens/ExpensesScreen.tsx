@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import {
   fetchExpenses,
@@ -11,7 +11,7 @@ import {
 } from "../lib/data";
 import { fmtDate, fmtEUR } from "../lib/format";
 import { colors, radius, space, type } from "../theme";
-import { Card, Empty, Loading, Pill, Screen } from "./ui";
+import { Card, Empty, Loading, Pill, Screen, Segmented, Select } from "./ui";
 
 // Libellé du payeur d'une dépense (payer_id null = la société).
 function payerLabel(e: ExpenseListItem): string {
@@ -108,19 +108,19 @@ export function ExpensesScreen() {
   return (
     <Screen>
       {/* Tri */}
-      <View style={styles.sortRow}>
-        <Pill label="Plus récentes" active={sortBy === "date"} onPress={() => setSortBy("date")} />
-        <Pill label="Montant" active={sortBy === "amount"} onPress={() => setSortBy("amount")} />
-      </View>
+      <Segmented<"date" | "amount">
+        options={[{ key: "date", label: "Plus récentes" }, { key: "amount", label: "Montant" }]}
+        value={sortBy}
+        onChange={setSortBy}
+      />
 
-      {/* Filtre par type */}
+      {/* Filtre par catégorie (menu déroulant) */}
       {categories.length > 0 && (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
-          <Pill label="Tous" active={catFilter === null} onPress={() => setCatFilter(null)} />
-          {categories.map((c) => (
-            <Pill key={c} label={c} active={catFilter === c} onPress={() => setCatFilter(c)} />
-          ))}
-        </ScrollView>
+        <Select<string>
+          value={catFilter ?? "__all__"}
+          options={[{ key: "__all__", label: "Toutes les catégories" }, ...categories.map((c) => ({ key: c, label: c }))]}
+          onChange={(k) => setCatFilter(k === "__all__" ? null : k)}
+        />
       )}
 
       {visible.length === 0 ? (

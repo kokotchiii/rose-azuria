@@ -15,7 +15,7 @@ import { fmtDate, fmtEUR, todayISO } from "../lib/format";
 import { supabase } from "../supabaseClient";
 import type { TaskPriority } from "../lib/data";
 import { colors, radius, space, TOUCH, type } from "../theme";
-import { Card, DateField, Empty, Kpi, Loading, Pill, Screen, SectionTitle } from "./ui";
+import { Card, DateField, Empty, Kpi, Loading, Screen, SectionTitle, Segmented } from "./ui";
 
 const MONTHS = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
 const PRIO_RANK: Record<TaskPriority, number> = { urgent: 3, high: 2, normal: 1, low: 0 };
@@ -256,14 +256,14 @@ function PlanForm({ profile, reload }: { profile: Profile; reload: () => void })
       </View>
 
       <Field label="Priorité">
-        <View style={styles.pills}>
-          {PRIORITIES.map((p) => <Pill key={p.key} label={p.label} active={priority === p.key} onPress={() => setPriority(p.key)} />)}
-        </View>
+        <Segmented<TaskPriority> options={PRIORITIES} value={priority} onChange={setPriority} />
       </Field>
       <Field label="Statut">
-        <View style={styles.pills}>
-          {STATUSES.filter((s) => s.key !== "done").map((s) => <Pill key={s.key} label={s.label} active={status === s.key} onPress={() => setStatus(s.key)} />)}
-        </View>
+        <Segmented<PlanStatus>
+          options={STATUSES.filter((s) => s.key !== "done").map((s) => ({ key: s.key, label: s.label }))}
+          value={status}
+          onChange={setStatus}
+        />
       </Field>
       <Field label="Échéance souhaitée (optionnel)">
         <DateField value={target} onChange={setTarget} placeholder="Aucune" />

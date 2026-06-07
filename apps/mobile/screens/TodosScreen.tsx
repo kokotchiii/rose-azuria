@@ -5,7 +5,7 @@ import type { Profile } from "@resto/shared";
 import { createTask, deleteTask, fetchTasks, setTaskStatus, type TaskPriority, type TaskRow } from "../lib/data";
 import { fmtDate } from "../lib/format";
 import { colors, radius, space, TOUCH, type } from "../theme";
-import { Card, Empty, Loading, Pill, Screen } from "./ui";
+import { Card, Empty, Loading, Screen, Segmented } from "./ui";
 
 const PRIORITIES: { key: TaskPriority; label: string }[] = [
   { key: "normal", label: "Normal" },
@@ -54,9 +54,7 @@ export function TodosScreen({ profile }: { profile: Profile }) {
     <Screen>
       <Card>
         <TextInput style={styles.input} value={title} onChangeText={setTitle} placeholder="Nouvelle tâche…" placeholderTextColor={colors.textMuted} />
-        <View style={styles.pills}>
-          {PRIORITIES.map((p) => <Pill key={p.key} label={p.label} active={priority === p.key} onPress={() => setPriority(p.key)} />)}
-        </View>
+        <Segmented<TaskPriority> options={PRIORITIES} value={priority} onChange={setPriority} />
         <Pressable style={({ pressed }) => [styles.btn, pressed && { opacity: 0.85 }]} onPress={add} accessibilityRole="button">
           <Ionicons name="add" size={20} color={colors.white} />
           <Text style={styles.btnText}>Ajouter</Text>

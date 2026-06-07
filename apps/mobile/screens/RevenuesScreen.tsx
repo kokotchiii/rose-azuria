@@ -18,7 +18,7 @@ import { getGrowthTarget, setGrowthTarget } from "../lib/goals";
 import { getDefaultTvaRate, setDefaultTvaRate, TVA_DEFAULT, TVA_RATES } from "../lib/settings";
 import { fmtDate, fmtEUR, todayISO } from "../lib/format";
 import { colors, radius, space, TOUCH, type } from "../theme";
-import { Card, DateField, Empty, Kpi, Loading, Pill, Screen, SectionTitle } from "./ui";
+import { Card, DateField, Empty, Kpi, Loading, Screen, SectionTitle, Segmented } from "./ui";
 import { BarList, LineChart, StackBar } from "./charts";
 
 const SERVICES: { key: Service; label: string }[] = [
@@ -63,10 +63,11 @@ export function RevenuesScreen({ profile }: { profile: Profile }) {
 
   return (
     <Screen>
-      <View style={styles.tabs}>
-        <Pill label="Statistiques" active={view === "stats"} onPress={() => setView("stats")} />
-        <Pill label="Saisie" active={view === "entry"} onPress={() => setView("entry")} />
-      </View>
+      <Segmented<View2>
+        options={[{ key: "stats", label: "Statistiques" }, { key: "entry", label: "Saisie" }]}
+        value={view}
+        onChange={setView}
+      />
 
       {loading ? (
         <Loading />
@@ -106,15 +107,14 @@ function StatsView({ items, defaultRate, onChangeDefaultRate }: { items: Revenue
 
   return (
     <>
-      <View style={styles.basisRow}>
-        <Pill label="TTC (brut)" active={basis === "ttc"} onPress={() => setBasis("ttc")} />
-        <Pill label="HT (net)" active={basis === "ht"} onPress={() => setBasis("ht")} />
-      </View>
+      <Segmented<Basis>
+        options={[{ key: "ttc", label: "TTC (brut)" }, { key: "ht", label: "HT (net)" }]}
+        value={basis}
+        onChange={setBasis}
+      />
 
       <SectionTitle>Granularité</SectionTitle>
-      <View style={styles.periodRow}>
-        {GRANS.map((g) => <Pill key={g.key} label={g.label} active={gran === g.key} onPress={() => setGran(g.key)} />)}
-      </View>
+      <Segmented<Gran> options={GRANS} value={gran} onChange={setGran} />
 
       {st.count === 0 ? (
         <Empty icon="bar-chart-outline" text="Aucune recette sur cette période." />
@@ -172,9 +172,11 @@ function StatsView({ items, defaultRate, onChangeDefaultRate }: { items: Revenue
       )}
 
       <SectionTitle>TVA par défaut</SectionTitle>
-      <View style={styles.periodRow}>
-        {TVA_RATES.map((r) => <Pill key={r} label={`${String(r).replace(".", ",")} %`} active={defaultRate === r} onPress={() => onChangeDefaultRate(r)} />)}
-      </View>
+      <Segmented<number>
+        options={TVA_RATES.map((r) => ({ key: r, label: `${String(r).replace(".", ",")} %` }))}
+        value={defaultRate}
+        onChange={onChangeDefaultRate}
+      />
       <Text style={styles.muted}>
         Appliqué aux recettes sans taux précis pour estimer le HT. Tu peux fixer un taux par recette à la saisie.
       </Text>
@@ -209,9 +211,7 @@ function ProjectionsCard({ items, amount, basis }: { items: RevenueRow[]; amount
   return (
     <>
       <SectionTitle>Projection du chiffre d'affaires ({basis === "ht" ? "HT" : "TTC"})</SectionTitle>
-      <View style={styles.periodRow}>
-        {HORIZONS.map((h) => <Pill key={h.key} label={h.label} active={horizon === h.key} onPress={() => setHorizon(h.key)} />)}
-      </View>
+      <Segmented<Horizon> options={HORIZONS} value={horizon} onChange={setHorizon} />
 
       <Card>
         {/* Objectif de croissance */}
@@ -365,9 +365,7 @@ function EntryView({ profile, items, defaultRate, reload }: { profile: Profile; 
             <TextInput style={styles.input} value={covers} onChangeText={setCovers} keyboardType="number-pad" placeholderTextColor={colors.textMuted} />
           </Field>
         </View>
-        <View style={styles.pills}>
-          {SERVICES.map((s) => <Pill key={s.key} label={s.label} active={service === s.key} onPress={() => setService(s.key)} />)}
-        </View>
+        <Segmented<Service> options={SERVICES} value={service} onChange={setService} />
         <View style={styles.row}>
           <Field label="Espèces €" flex>
             <TextInput style={styles.input} value={cash} onChangeText={setCash} keyboardType="decimal-pad" placeholderTextColor={colors.textMuted} />
@@ -381,9 +379,11 @@ function EntryView({ profile, items, defaultRate, reload }: { profile: Profile; 
         </View>
 
         <Field label="Taux de TVA">
-          <View style={styles.pills}>
-            {TVA_RATES.map((r) => <Pill key={r} label={`${String(r).replace(".", ",")} %`} active={rate === r} onPress={() => setRate(r)} />)}
-          </View>
+          <Segmented<number>
+            options={TVA_RATES.map((r) => ({ key: r, label: `${String(r).replace(".", ",")} %` }))}
+            value={rate}
+            onChange={setRate}
+          />
         </Field>
         {totalTTC > 0 && (
           <View style={styles.tvaPreview}>

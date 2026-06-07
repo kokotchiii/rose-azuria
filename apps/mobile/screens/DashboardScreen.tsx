@@ -15,7 +15,7 @@ import { getDefaultTvaRate, TVA_DEFAULT } from "../lib/settings";
 import { daysAgoISO, fmtDayShort, fmtEUR, startOfMonthISO, todayISO } from "../lib/format";
 import { supabase } from "../supabaseClient";
 import { colors, radius, space, type } from "../theme";
-import { Card, Empty, Kpi, Loading, Pill, Screen, SectionTitle } from "./ui";
+import { Card, Empty, Kpi, Loading, Screen, SectionTitle, Segmented } from "./ui";
 import { Donut, LineChart } from "./charts";
 
 type Period = "month" | "30j" | "all";
@@ -99,15 +99,16 @@ export function DashboardScreen() {
 
   return (
     <Screen>
-      <View style={styles.periodRow}>
-        <Pill label="Ce mois" active={period === "month"} onPress={() => setPeriod("month")} />
-        <Pill label="30 jours" active={period === "30j"} onPress={() => setPeriod("30j")} />
-        <Pill label="Tout" active={period === "all"} onPress={() => setPeriod("all")} />
-      </View>
-      <View style={styles.periodRow}>
-        <Pill label="TTC (brut)" active={basis === "ttc"} onPress={() => setBasis("ttc")} />
-        <Pill label="HT (net)" active={basis === "ht"} onPress={() => setBasis("ht")} />
-      </View>
+      <Segmented<Period>
+        options={[{ key: "month", label: "Ce mois" }, { key: "30j", label: "30 jours" }, { key: "all", label: "Tout" }]}
+        value={period}
+        onChange={setPeriod}
+      />
+      <Segmented<Basis>
+        options={[{ key: "ttc", label: "TTC (brut)" }, { key: "ht", label: "HT (net)" }]}
+        value={basis}
+        onChange={setBasis}
+      />
 
       <View style={styles.kpiRow}>
         <Kpi label={`Recettes${bSuffix} (${periodLabel})`} value={fmtEUR(totals.rev)} tone="good" />

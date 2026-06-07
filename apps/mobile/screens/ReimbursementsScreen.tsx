@@ -10,7 +10,7 @@ import {
 } from "../lib/data";
 import { fmtDate, fmtEUR } from "../lib/format";
 import { colors, radius, space, type } from "../theme";
-import { Card, Empty, Loading, Pill, Screen } from "./ui";
+import { Card, Empty, Loading, Screen, Segmented } from "./ui";
 
 type Tab = "pending" | "history";
 
@@ -61,10 +61,11 @@ export function ReimbursementsScreen() {
   return (
     <Screen>
       {/* Onglets */}
-      <View style={styles.tabs}>
-        <Pill label="À rembourser" active={tab === "pending"} onPress={() => setTab("pending")} />
-        <Pill label="Historique" active={tab === "history"} onPress={() => setTab("history")} />
-      </View>
+      <Segmented<Tab>
+        options={[{ key: "pending", label: "À rembourser" }, { key: "history", label: "Historique" }]}
+        value={tab}
+        onChange={setTab}
+      />
 
       {loading ? (
         <Loading />
