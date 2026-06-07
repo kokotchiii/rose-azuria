@@ -238,7 +238,7 @@ const s = StyleSheet.create({
   section: { ...type.label, color: colors.textMuted, marginTop: space.sm },
   kpi: { flex: 1, minWidth: 150, backgroundColor: colors.surface, borderRadius: radius.xl, padding: space.lg, gap: 6, borderWidth: 1, borderColor: colors.border, ...shadow.card },
   kpiLabel: { ...type.small, color: colors.textMuted },
-  kpiValue: { ...type.display, fontSize: 27, letterSpacing: -0.3 },
+  kpiValue: { fontFamily: fonts.bold, fontSize: 26, letterSpacing: -0.4 },
   center: { paddingVertical: space.xxl, alignItems: "center", justifyContent: "center" },
   empty: { alignItems: "center", gap: space.sm, paddingVertical: space.xxl },
   emptyText: { ...type.small, color: colors.textMuted },
