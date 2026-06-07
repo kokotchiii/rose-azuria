@@ -5,9 +5,10 @@ import { Ionicons } from "@expo/vector-icons";
 import { colors, radius, shadow, space, type } from "../theme";
 import { fmtDate } from "../lib/format";
 
-export function Screen({ children, refreshing, onRefresh }: { children: React.ReactNode; refreshing?: boolean; onRefresh?: () => void }) {
+export function Screen({ children, scrollRef }: { children: React.ReactNode; refreshing?: boolean; onRefresh?: () => void; scrollRef?: React.RefObject<ScrollView | null> }) {
   return (
     <ScrollView
+      ref={scrollRef}
       style={s.screen}
       contentContainerStyle={s.content}
       keyboardShouldPersistTaps="handled"

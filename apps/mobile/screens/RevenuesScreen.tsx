@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import type { Profile } from "@resto/shared";
 import {
@@ -72,6 +72,9 @@ export function RevenuesScreen({ profile }: { profile: Profile }) {
     [schedule, openingDate],
   );
 
+  const scrollRef = useRef<ScrollView | null>(null);
+  function scrollToTop() { scrollRef.current?.scrollTo({ y: 0, animated: true }); }
+
   function load() {
     fetchRevenues()
       .then(setItems)
@@ -81,7 +84,7 @@ export function RevenuesScreen({ profile }: { profile: Profile }) {
   useEffect(load, []);
 
   return (
-    <Screen>
+    <Screen scrollRef={scrollRef}>
       <Segmented<View2>
         options={[{ key: "stats", label: "Statistiques" }, { key: "entry", label: "Saisie" }]}
         value={view}
@@ -102,7 +105,7 @@ export function RevenuesScreen({ profile }: { profile: Profile }) {
           onChangeOpeningDate={changeOpeningDate}
         />
       ) : (
-        <EntryView profile={profile} items={items} defaultRate={defaultRate} reload={() => { setLoading(true); load(); }} />
+        <EntryView profile={profile} items={items} defaultRate={defaultRate} reload={() => { setLoading(true); load(); }} scrollToTop={scrollToTop} />
       )}
     </Screen>
   );
@@ -378,7 +381,7 @@ function ProjBar({ label, value, scale, color }: { label: string; value: number;
 }
 
 // ---------- Vue Saisie (formulaire + historique + édition) ----------
-function EntryView({ profile, items, defaultRate, reload }: { profile: Profile; items: RevenueRow[]; defaultRate: number; reload: () => void }) {
+function EntryView({ profile, items, defaultRate, reload, scrollToTop }: { profile: Profile; items: RevenueRow[]; defaultRate: number; reload: () => void; scrollToTop: () => void }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -410,6 +413,7 @@ function EntryView({ profile, items, defaultRate, reload }: { profile: Profile; 
     setCovers(r.covers != null ? String(r.covers) : "");
     setRate(r.tva_rate ?? defaultRate);
     setError(null);
+    scrollToTop(); // remonte vers le formulaire pour montrer qu'on édite
   }
 
   // Aperçu HT / TVA en direct à partir du total saisi et du taux choisi.
@@ -523,6 +527,7 @@ function EntryView({ profile, items, defaultRate, reload }: { profile: Profile; 
       </Card>
 
       <SectionTitle>Historique</SectionTitle>
+      <Text style={styles.muted}>Touchez une recette pour la modifier (date, service, journée, montants, TVA) ou la supprimer.</Text>
       {items.length === 0 ? (
         <Empty icon="cash-outline" text="Aucune recette saisie." />
       ) : (
