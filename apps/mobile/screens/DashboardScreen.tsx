@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import {
+  expenseHT,
   fetchAiCostThisMonth,
   fetchExpenses,
   fetchPendingReimbursements,
   fetchRevenues,
+  revenueHT,
   revenueTotal,
   type ExpenseListItem,
   type RevenueRow,
 } from "../lib/data";
+import { getDefaultTvaRate, TVA_DEFAULT } from "../lib/settings";
 import { daysAgoISO, fmtDayShort, fmtEUR, startOfMonthISO, todayISO } from "../lib/format";
 import { supabase } from "../supabaseClient";
 import { colors, radius, space, type } from "../theme";
@@ -16,6 +19,7 @@ import { Card, Empty, Kpi, Loading, Pill, Screen, SectionTitle } from "./ui";
 import { Donut, LineChart } from "./charts";
 
 type Period = "month" | "30j" | "all";
+type Basis = "ttc" | "ht";
 
 // Palette tournante pour les parts du donut des catégories.
 const CAT_COLORS = ["#DC2626", "#CA8A04", "#15803D", "#2563EB", "#7C3AED", "#DB2777", "#0891B2", "#EA580C", "#6B7280"];
@@ -26,7 +30,11 @@ export function DashboardScreen() {
   const [aiCost, setAiCost] = useState<{ total: number; count: number }>({ total: 0, count: 0 });
   const [reimbTotal, setReimbTotal] = useState(0); // à rembourser, tout-temps
   const [period, setPeriod] = useState<Period>("month");
+  const [basis, setBasis] = useState<Basis>("ttc");
+  const [defaultRate, setDefaultRate] = useState(TVA_DEFAULT);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => { getDefaultTvaRate().then(setDefaultRate); }, []);
 
   const range = useMemo(() => {
     if (period === "month") return { from: startOfMonthISO(), to: todayISO() };
@@ -59,10 +67,12 @@ export function DashboardScreen() {
   }, [load]);
 
   const totals = useMemo(() => {
-    const dep = expenses.reduce((s, e) => s + Number(e.amount_ttc), 0);
-    const rev = revenues.reduce((s, r) => s + revenueTotal(r), 0);
+    const ht = basis === "ht";
+    // Dépense HT : TTC − TVA si connue, sinon on retombe sur le TTC (TVA non extraite).
+    const dep = expenses.reduce((s, e) => s + (ht ? expenseHT(e) ?? Number(e.amount_ttc) : Number(e.amount_ttc)), 0);
+    const rev = revenues.reduce((s, r) => s + (ht ? revenueHT(r, defaultRate) : revenueTotal(r)), 0);
     return { dep, rev, net: rev - dep, count: expenses.length };
-  }, [expenses, revenues]);
+  }, [expenses, revenues, basis, defaultRate]);
 
   const byCategory = useMemo(() => {
     const map = new Map<string, number>();
@@ -85,6 +95,7 @@ export function DashboardScreen() {
   if (loading) return <Loading />;
 
   const periodLabel = period === "month" ? "ce mois" : period === "30j" ? "30 j" : "tout";
+  const bSuffix = basis === "ht" ? " HT" : " TTC";
 
   return (
     <Screen>
@@ -93,13 +104,17 @@ export function DashboardScreen() {
         <Pill label="30 jours" active={period === "30j"} onPress={() => setPeriod("30j")} />
         <Pill label="Tout" active={period === "all"} onPress={() => setPeriod("all")} />
       </View>
+      <View style={styles.periodRow}>
+        <Pill label="TTC (brut)" active={basis === "ttc"} onPress={() => setBasis("ttc")} />
+        <Pill label="HT (net)" active={basis === "ht"} onPress={() => setBasis("ht")} />
+      </View>
 
       <View style={styles.kpiRow}>
-        <Kpi label={`Recettes (${periodLabel})`} value={fmtEUR(totals.rev)} tone="good" />
-        <Kpi label={`Dépenses (${periodLabel})`} value={fmtEUR(totals.dep)} />
+        <Kpi label={`Recettes${bSuffix} (${periodLabel})`} value={fmtEUR(totals.rev)} tone="good" />
+        <Kpi label={`Dépenses${bSuffix} (${periodLabel})`} value={fmtEUR(totals.dep)} />
       </View>
       <Kpi
-        label={`Résultat net (${periodLabel})`}
+        label={`Résultat net${bSuffix} (${periodLabel})`}
         value={fmtEUR(totals.net)}
         tone={totals.net >= 0 ? "good" : "warn"}
       />

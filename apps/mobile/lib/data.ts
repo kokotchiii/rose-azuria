@@ -333,6 +333,7 @@ export interface RevenueRow {
   amount_other: number;
   covers: number | null;
   note: string | null;
+  tva_rate: number | null; // taux TVA (%) ; null = taux par défaut de l'app
 }
 
 export async function fetchRevenues(filters: { from?: string; to?: string } = {}): Promise<RevenueRow[]> {
@@ -353,6 +354,7 @@ export async function upsertRevenue(args: {
   amount_other: number;
   covers: number | null;
   note: string | null;
+  tva_rate: number | null;
   created_by: string;
 }): Promise<void> {
   const { error } = await supabase
@@ -361,8 +363,26 @@ export async function upsertRevenue(args: {
   if (error) throw error;
 }
 
+// CA TTC d'une recette (somme des encaissements).
 export function revenueTotal(r: Pick<RevenueRow, "amount_cash" | "amount_cb" | "amount_other">): number {
   return Number(r.amount_cash) + Number(r.amount_cb) + Number(r.amount_other);
+}
+
+// CA HT = TTC / (1 + taux/100). Utilise le taux de la recette ou le défaut fourni.
+export function revenueHT(r: RevenueRow, defaultRate: number): number {
+  const rate = r.tva_rate ?? defaultRate;
+  return revenueTotal(r) / (1 + rate / 100);
+}
+
+// TVA collectée = TTC − HT.
+export function revenueTVA(r: RevenueRow, defaultRate: number): number {
+  return revenueTotal(r) - revenueHT(r, defaultRate);
+}
+
+// HT d'une dépense : TTC − TVA (si la TVA est connue, sinon HT inconnu → null).
+export function expenseHT(e: Pick<Expense, "amount_ttc" | "amount_tva">): number | null {
+  if (e.amount_tva == null) return null;
+  return Number(e.amount_ttc) - Number(e.amount_tva);
 }
 
 // Modifier une recette existante (ex. changer le service soir → journée).
@@ -375,6 +395,7 @@ export async function updateRevenue(
     amount_cb: number;
     amount_other: number;
     covers: number | null;
+    tva_rate: number | null;
   },
 ): Promise<void> {
   const { error } = await supabase.from("revenues").update(fields).eq("id", id);

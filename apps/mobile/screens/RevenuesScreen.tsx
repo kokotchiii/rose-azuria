@@ -5,14 +5,17 @@ import type { Profile } from "@resto/shared";
 import {
   deleteRevenue,
   fetchRevenues,
+  revenueHT,
   revenueTotal,
+  revenueTVA,
   updateRevenue,
   upsertRevenue,
   type RevenueRow,
   type Service,
 } from "../lib/data";
-import { caSeries, byWeekday, project, windowStart, windowStats, type Gran, type Horizon } from "../lib/stats";
+import { caSeries, byWeekday, project, windowStart, windowStats, type AmountFn, type Gran, type Horizon } from "../lib/stats";
 import { getGrowthTarget, setGrowthTarget } from "../lib/goals";
+import { getDefaultTvaRate, setDefaultTvaRate, TVA_DEFAULT, TVA_RATES } from "../lib/settings";
 import { fmtDate, fmtEUR, todayISO } from "../lib/format";
 import { colors, radius, space, TOUCH, type } from "../theme";
 import { Card, DateField, Empty, Kpi, Loading, Pill, Screen, SectionTitle } from "./ui";
@@ -39,11 +42,16 @@ const HORIZONS: { key: Horizon; label: string }[] = [
 ];
 
 type View2 = "stats" | "entry";
+type Basis = "ttc" | "ht";
 
 export function RevenuesScreen({ profile }: { profile: Profile }) {
   const [items, setItems] = useState<RevenueRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<View2>("stats");
+  const [defaultRate, setDefaultRate] = useState(TVA_DEFAULT);
+
+  useEffect(() => { getDefaultTvaRate().then(setDefaultRate); }, []);
+  function changeDefaultRate(r: number) { setDefaultRate(r); setDefaultTvaRate(r); }
 
   function load() {
     fetchRevenues()
@@ -63,35 +71,46 @@ export function RevenuesScreen({ profile }: { profile: Profile }) {
       {loading ? (
         <Loading />
       ) : view === "stats" ? (
-        <StatsView items={items} />
+        <StatsView items={items} defaultRate={defaultRate} onChangeDefaultRate={changeDefaultRate} />
       ) : (
-        <EntryView profile={profile} items={items} reload={() => { setLoading(true); load(); }} />
+        <EntryView profile={profile} items={items} defaultRate={defaultRate} reload={() => { setLoading(true); load(); }} />
       )}
     </Screen>
   );
 }
 
 // ---------- Vue Statistiques ----------
-function StatsView({ items }: { items: RevenueRow[] }) {
+function StatsView({ items, defaultRate, onChangeDefaultRate }: { items: RevenueRow[]; defaultRate: number; onChangeDefaultRate: (r: number) => void }) {
   const [gran, setGran] = useState<Gran>("day");
+  const [basis, setBasis] = useState<Basis>("ttc");
+
+  // Sélecteur de montant : TTC ou HT (net de TVA).
+  const amount: AmountFn = basis === "ht" ? (r) => revenueHT(r, defaultRate) : revenueTotal;
 
   const win = useMemo(() => {
     const from = windowStart(gran);
     const rows = items.filter((r) => r.revenue_date >= from);
-    const st = windowStats(rows);
-    const series = caSeries(rows, gran);
+    const st = windowStats(rows, amount);
+    const series = caSeries(rows, gran, amount);
     const svc = new Map<string, number>();
-    for (const r of rows) svc.set(r.service, (svc.get(r.service) ?? 0) + revenueTotal(r));
+    for (const r of rows) svc.set(r.service, (svc.get(r.service) ?? 0) + amount(r));
     const byService = SERVICES.map((s) => ({ label: s.label, value: svc.get(s.key) ?? 0 })).filter((x) => x.value > 0);
-    const weekday = byWeekday(rows).filter((x) => x.value > 0);
-    return { st, series, byService, weekday };
-  }, [items, gran]);
+    const weekday = byWeekday(rows, amount).filter((x) => x.value > 0);
+    const tva = rows.reduce((s, r) => s + revenueTVA(r, defaultRate), 0);
+    return { st, series, byService, weekday, tva };
+  }, [items, gran, basis, defaultRate]);
 
   const granLabel = GRANS.find((g) => g.key === gran)?.label.toLowerCase() ?? "";
+  const caLabel = basis === "ht" ? "Chiffre d'affaires HT" : "Chiffre d'affaires TTC";
   const { st } = win;
 
   return (
     <>
+      <View style={styles.basisRow}>
+        <Pill label="TTC (brut)" active={basis === "ttc"} onPress={() => setBasis("ttc")} />
+        <Pill label="HT (net)" active={basis === "ht"} onPress={() => setBasis("ht")} />
+      </View>
+
       <SectionTitle>Granularité</SectionTitle>
       <View style={styles.periodRow}>
         {GRANS.map((g) => <Pill key={g.key} label={g.label} active={gran === g.key} onPress={() => setGran(g.key)} />)}
@@ -102,12 +121,12 @@ function StatsView({ items }: { items: RevenueRow[] }) {
       ) : (
         <>
           <View style={styles.kpiRow}>
-            <Kpi label="Chiffre d'affaires" value={fmtEUR(st.ca)} tone="good" />
+            <Kpi label={caLabel} value={fmtEUR(st.ca)} tone="good" />
             <Kpi label="Couverts" value={String(st.covers)} />
           </View>
           <View style={styles.kpiRow}>
-            <Kpi label="Panier moyen / couvert" value={st.covers > 0 ? fmtEUR(st.panier) : "—"} />
-            <Kpi label="Moyenne / jour" value={fmtEUR(st.avgPerDay)} />
+            <Kpi label={`Panier moyen / couvert${basis === "ht" ? " (HT)" : ""}`} value={st.covers > 0 ? fmtEUR(st.panier) : "—"} />
+            <Kpi label="TVA collectée" value={fmtEUR(win.tva)} tone="warn" />
           </View>
           {st.bestDay && (
             <Kpi label={`Meilleur jour · ${fmtDate(st.bestDay.date)}`} value={fmtEUR(st.bestDay.value)} tone="good" />
@@ -136,7 +155,7 @@ function StatsView({ items }: { items: RevenueRow[] }) {
             )}
           </Card>
 
-          <SectionTitle>Moyens d'encaissement</SectionTitle>
+          <SectionTitle>Moyens d'encaissement (TTC)</SectionTitle>
           <Card>
             <StackBar
               segments={[
@@ -152,13 +171,21 @@ function StatsView({ items }: { items: RevenueRow[] }) {
         </>
       )}
 
-      <ProjectionsCard items={items} />
+      <SectionTitle>TVA par défaut</SectionTitle>
+      <View style={styles.periodRow}>
+        {TVA_RATES.map((r) => <Pill key={r} label={`${String(r).replace(".", ",")} %`} active={defaultRate === r} onPress={() => onChangeDefaultRate(r)} />)}
+      </View>
+      <Text style={styles.muted}>
+        Appliqué aux recettes sans taux précis pour estimer le HT. Tu peux fixer un taux par recette à la saisie.
+      </Text>
+
+      <ProjectionsCard items={items} amount={amount} basis={basis} />
     </>
   );
 }
 
 // ---------- Carte Projections + objectif ----------
-function ProjectionsCard({ items }: { items: RevenueRow[] }) {
+function ProjectionsCard({ items, amount, basis }: { items: RevenueRow[]; amount: AmountFn; basis: Basis }) {
   const [horizon, setHorizon] = useState<Horizon>("month");
   const [growth, setGrowth] = useState(10);
 
@@ -171,7 +198,7 @@ function ProjectionsCard({ items }: { items: RevenueRow[] }) {
     });
   }
 
-  const p = useMemo(() => project(items, horizon, growth), [items, horizon, growth]);
+  const p = useMemo(() => project(items, horizon, growth, amount), [items, horizon, growth, amount]);
 
   const hLabel = HORIZONS.find((h) => h.key === horizon)?.label.toLowerCase() ?? "";
   const onTrack = p.objective <= 0 ? null : p.projected >= p.objective;
@@ -181,7 +208,7 @@ function ProjectionsCard({ items }: { items: RevenueRow[] }) {
 
   return (
     <>
-      <SectionTitle>Projection du chiffre d'affaires</SectionTitle>
+      <SectionTitle>Projection du chiffre d'affaires ({basis === "ht" ? "HT" : "TTC"})</SectionTitle>
       <View style={styles.periodRow}>
         {HORIZONS.map((h) => <Pill key={h.key} label={h.label} active={horizon === h.key} onPress={() => setHorizon(h.key)} />)}
       </View>
@@ -246,7 +273,7 @@ function ProjBar({ label, value, scale, color }: { label: string; value: number;
 }
 
 // ---------- Vue Saisie (formulaire + historique + édition) ----------
-function EntryView({ profile, items, reload }: { profile: Profile; items: RevenueRow[]; reload: () => void }) {
+function EntryView({ profile, items, defaultRate, reload }: { profile: Profile; items: RevenueRow[]; defaultRate: number; reload: () => void }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -257,12 +284,14 @@ function EntryView({ profile, items, reload }: { profile: Profile; items: Revenu
   const [cb, setCb] = useState("");
   const [other, setOther] = useState("");
   const [covers, setCovers] = useState("");
+  const [rate, setRate] = useState<number>(defaultRate);
 
   function resetForm() {
     setEditingId(null);
     setDate(todayISO());
     setService("soir");
     setCash(""); setCb(""); setOther(""); setCovers("");
+    setRate(defaultRate);
     setError(null);
   }
 
@@ -274,8 +303,14 @@ function EntryView({ profile, items, reload }: { profile: Profile; items: Revenu
     setCb(r.amount_cb ? String(r.amount_cb) : "");
     setOther(r.amount_other ? String(r.amount_other) : "");
     setCovers(r.covers != null ? String(r.covers) : "");
+    setRate(r.tva_rate ?? defaultRate);
     setError(null);
   }
+
+  // Aperçu HT / TVA en direct à partir du total saisi et du taux choisi.
+  const totalTTC = (Number(cash) || 0) + (Number(cb) || 0) + (Number(other) || 0);
+  const previewHT = totalTTC / (1 + rate / 100);
+  const previewTVA = totalTTC - previewHT;
 
   async function save() {
     setSaving(true);
@@ -288,6 +323,7 @@ function EntryView({ profile, items, reload }: { profile: Profile; items: Revenu
         amount_cb: Number(cb) || 0,
         amount_other: Number(other) || 0,
         covers: covers ? Number(covers) : null,
+        tva_rate: rate,
       };
       if (editingId) await updateRevenue(editingId, fields);
       else await upsertRevenue({ establishment_id: profile.establishment_id, note: null, created_by: profile.id, ...fields });
@@ -344,6 +380,19 @@ function EntryView({ profile, items, reload }: { profile: Profile; items: Revenu
           </Field>
         </View>
 
+        <Field label="Taux de TVA">
+          <View style={styles.pills}>
+            {TVA_RATES.map((r) => <Pill key={r} label={`${String(r).replace(".", ",")} %`} active={rate === r} onPress={() => setRate(r)} />)}
+          </View>
+        </Field>
+        {totalTTC > 0 && (
+          <View style={styles.tvaPreview}>
+            <Text style={styles.muted}>TTC {fmtEUR(totalTTC)}</Text>
+            <Text style={styles.tvaPreviewStrong}>HT {fmtEUR(previewHT)}</Text>
+            <Text style={styles.muted}>TVA {fmtEUR(previewTVA)}</Text>
+          </View>
+        )}
+
         {error && <Text style={styles.error}>{error}</Text>}
 
         <Pressable style={({ pressed }) => [styles.btn, pressed && { opacity: 0.85 }]} onPress={save} disabled={saving} accessibilityRole="button">
@@ -381,7 +430,7 @@ function EntryView({ profile, items, reload }: { profile: Profile; items: Revenu
               </View>
               <View style={styles.lineRow}>
                 <Text style={styles.meta}>
-                  Esp. {fmtEUR(r.amount_cash)} · CB {fmtEUR(r.amount_cb)} · Autre {fmtEUR(r.amount_other)}
+                  HT {fmtEUR(revenueHT(r, defaultRate))} · TVA {String(r.tva_rate ?? defaultRate).replace(".", ",")} %
                   {r.covers != null ? ` · ${r.covers} couv.` : ""}
                 </Text>
                 <Ionicons name="create-outline" size={16} color={colors.secondary} />
@@ -405,7 +454,10 @@ function Field({ label, children, flex }: { label: string; children: React.React
 
 const styles = StyleSheet.create({
   tabs: { flexDirection: "row", gap: space.sm },
+  basisRow: { flexDirection: "row", gap: space.sm },
   periodRow: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
+  tvaPreview: { flexDirection: "row", flexWrap: "wrap", gap: space.md, alignItems: "baseline", paddingVertical: space.xs },
+  tvaPreviewStrong: { ...type.title, color: colors.text },
   kpiRow: { flexDirection: "row", gap: space.md },
   muted: { ...type.small, color: colors.textMuted },
   row: { flexDirection: "row", gap: space.md },

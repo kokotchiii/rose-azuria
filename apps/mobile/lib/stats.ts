@@ -8,6 +8,9 @@ export type Horizon = "week" | "month" | "year";
 
 export interface Point { label: string; value: number }
 
+// Sélecteur de montant d'une recette : TTC par défaut, ou HT selon la base choisie.
+export type AmountFn = (r: RevenueRow) => number;
+
 const MONTHS_SHORT = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."];
 const WEEKDAYS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
 
@@ -48,23 +51,23 @@ export function windowStart(g: Gran, now: Date = new Date()): string {
 }
 
 // Série de CA agrégée par bucket, triée chronologiquement.
-export function caSeries(rows: RevenueRow[], g: Gran): Point[] {
+export function caSeries(rows: RevenueRow[], g: Gran, amount: AmountFn = revenueTotal): Point[] {
   const map = new Map<string, { label: string; value: number }>();
   for (const r of rows) {
     const b = bucket(r.revenue_date, g);
     const cur = map.get(b.key) ?? { label: b.label, value: 0 };
-    cur.value += revenueTotal(r);
+    cur.value += amount(r);
     map.set(b.key, cur);
   }
   return [...map.entries()].sort((a, b2) => (a[0] < b2[0] ? -1 : 1)).map(([, v]) => ({ label: v.label, value: v.value }));
 }
 
 // Répartition du CA par jour de semaine (Lun→Dim).
-export function byWeekday(rows: RevenueRow[]): Point[] {
+export function byWeekday(rows: RevenueRow[], amount: AmountFn = revenueTotal): Point[] {
   const sums = new Array(7).fill(0);
   for (const r of rows) {
     const wd = (dateOnly(r.revenue_date).getDay() + 6) % 7; // lundi = 0
-    sums[wd] += revenueTotal(r);
+    sums[wd] += amount(r);
   }
   return WEEKDAYS.map((label, i) => ({ label, value: sums[i] }));
 }
@@ -80,15 +83,16 @@ export interface WindowStats {
   bestDay: { date: string; value: number } | null;
 }
 
-export function windowStats(rows: RevenueRow[]): WindowStats {
-  const ca = rows.reduce((s, r) => s + revenueTotal(r), 0);
+export function windowStats(rows: RevenueRow[], amount: AmountFn = revenueTotal): WindowStats {
+  const ca = rows.reduce((s, r) => s + amount(r), 0);
   const covers = rows.reduce((s, r) => s + (r.covers ?? 0), 0);
+  // Les encaissements (espèces/CB/autre) sont toujours des montants reçus (TTC).
   const cash = rows.reduce((s, r) => s + Number(r.amount_cash || 0), 0);
   const cb = rows.reduce((s, r) => s + Number(r.amount_cb || 0), 0);
   const other = rows.reduce((s, r) => s + Number(r.amount_other || 0), 0);
 
   const byDay = new Map<string, number>();
-  for (const r of rows) byDay.set(r.revenue_date, (byDay.get(r.revenue_date) ?? 0) + revenueTotal(r));
+  for (const r of rows) byDay.set(r.revenue_date, (byDay.get(r.revenue_date) ?? 0) + amount(r));
   let bestDay: WindowStats["bestDay"] = null;
   for (const [date, value] of byDay) if (!bestDay || value > bestDay.value) bestDay = { date, value };
   const days = byDay.size;
@@ -124,23 +128,23 @@ function horizonBounds(h: Horizon, now: Date): { start: Date; end: Date; prevSta
   return { start, end, prevStart: new Date(now.getFullYear() - 1, 0, 1), prevEnd: start };
 }
 
-function sumBetween(rows: RevenueRow[], startIso: string, endIso: string): number {
+function sumBetween(rows: RevenueRow[], startIso: string, endIso: string, amount: AmountFn): number {
   // [start, end) en comparaison de chaînes ISO.
   let s = 0;
-  for (const r of rows) if (r.revenue_date >= startIso && r.revenue_date < endIso) s += revenueTotal(r);
+  for (const r of rows) if (r.revenue_date >= startIso && r.revenue_date < endIso) s += amount(r);
   return s;
 }
 
-export function project(rows: RevenueRow[], h: Horizon, growthPct: number, now: Date = new Date()): Projection {
+export function project(rows: RevenueRow[], h: Horizon, growthPct: number, amount: AmountFn = revenueTotal, now: Date = new Date()): Projection {
   const { start, end, prevStart, prevEnd } = horizonBounds(h, now);
   const startIso = isoOf(start), endIso = isoOf(end);
   const total = Math.round((end.getTime() - start.getTime()) / DAY_MS);
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const elapsed = Math.min(total, Math.max(1, Math.round((today.getTime() - start.getTime()) / DAY_MS) + 1));
 
-  const actual = sumBetween(rows, startIso, endIso);
+  const actual = sumBetween(rows, startIso, endIso, amount);
   const projected = elapsed > 0 ? (actual / elapsed) * total : 0;
-  const prev = sumBetween(rows, isoOf(prevStart), isoOf(prevEnd));
+  const prev = sumBetween(rows, isoOf(prevStart), isoOf(prevEnd), amount);
   const objective = prev * (1 + growthPct / 100);
 
   return { horizon: h, actual, projected, prev, objective, elapsed, total };
