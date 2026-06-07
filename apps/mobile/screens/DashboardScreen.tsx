@@ -11,7 +11,7 @@ import {
 } from "../lib/data";
 import { daysAgoISO, fmtDayShort, fmtEUR, startOfMonthISO, todayISO } from "../lib/format";
 import { supabase } from "../supabaseClient";
-import { colors, space, type } from "../theme";
+import { colors, radius, space, type } from "../theme";
 import { Card, Empty, Kpi, Loading, Pill, Screen, SectionTitle } from "./ui";
 import { Donut, LineChart } from "./charts";
 
@@ -104,6 +104,13 @@ export function DashboardScreen() {
         tone={totals.net >= 0 ? "good" : "warn"}
       />
 
+      {(totals.rev > 0 || totals.dep > 0) && (
+        <Card>
+          <CompareBar label="Recettes" value={totals.rev} scale={Math.max(totals.rev, totals.dep, 1)} color={colors.success} />
+          <CompareBar label="Dépenses" value={totals.dep} scale={Math.max(totals.rev, totals.dep, 1)} color={colors.primary} />
+        </Card>
+      )}
+
       <View style={styles.kpiRow}>
         <Kpi label="À rembourser (total)" value={fmtEUR(reimbTotal)} tone="warn" />
         <Kpi
@@ -140,8 +147,27 @@ export function DashboardScreen() {
   );
 }
 
+function CompareBar({ label, value, scale, color }: { label: string; value: number; scale: number; color: string }) {
+  return (
+    <View style={{ gap: 4 }}>
+      <View style={styles.barHead}>
+        <Text style={styles.barLabel}>{label}</Text>
+        <Text style={styles.barVal}>{fmtEUR(value)}</Text>
+      </View>
+      <View style={styles.barTrack}>
+        <View style={[styles.barFill, { width: `${Math.max(2, (value / scale) * 100)}%`, backgroundColor: color }]} />
+      </View>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   periodRow: { flexDirection: "row", gap: space.sm },
   kpiRow: { flexDirection: "row", gap: space.md },
   muted: { ...type.small, color: colors.textMuted },
+  barHead: { flexDirection: "row", justifyContent: "space-between", gap: space.sm },
+  barLabel: { ...type.small, color: colors.text, flex: 1 },
+  barVal: { ...type.small, color: colors.textMuted },
+  barTrack: { height: 12, borderRadius: radius.pill, backgroundColor: colors.chipBg, overflow: "hidden" },
+  barFill: { height: 12, borderRadius: radius.pill },
 });
