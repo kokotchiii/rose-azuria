@@ -20,7 +20,7 @@ import {
   getOpenSchedule, setOpenSchedule, getOpeningDate, setOpeningDate,
   servicesPerWeekdayOf, DEFAULT_OPEN_SCHEDULE, DEFAULT_OPENING_DATE, type DaySchedule,
 } from "../lib/settings";
-import { fmtDate, fmtEUR, todayISO } from "../lib/format";
+import { fmtDate, fmtEUR, parseAmount, todayISO } from "../lib/format";
 import { colors, radius, space, TOUCH, type } from "../theme";
 import { Card, DateField, Empty, Kpi, Loading, Pill, Screen, SectionTitle, Segmented } from "./ui";
 
@@ -422,8 +422,8 @@ function EntryView({ profile, items, defaultRate, reload, scrollToTop }: { profi
   }
 
   // Aperçu HT / TVA en direct : TVA saisie manuellement, ou calculée depuis le taux.
-  const totalTTC = (Number(cash) || 0) + (Number(cb) || 0) + (Number(other) || 0);
-  const previewTVA = tvaMode === "amount" ? (Number(tvaManual) || 0) : totalTTC - totalTTC / (1 + rate / 100);
+  const totalTTC = parseAmount(cash) + parseAmount(cb) + parseAmount(other);
+  const previewTVA = tvaMode === "amount" ? parseAmount(tvaManual) : totalTTC - totalTTC / (1 + rate / 100);
   const previewHT = totalTTC - previewTVA;
 
   async function save() {
@@ -433,12 +433,12 @@ function EntryView({ profile, items, defaultRate, reload, scrollToTop }: { profi
       const fields = {
         revenue_date: date,
         service,
-        amount_cash: Number(cash) || 0,
-        amount_cb: Number(cb) || 0,
-        amount_other: Number(other) || 0,
-        covers: covers ? Number(covers) : null,
+        amount_cash: parseAmount(cash),
+        amount_cb: parseAmount(cb),
+        amount_other: parseAmount(other),
+        covers: covers ? Math.round(parseAmount(covers)) : null,
         tva_rate: tvaMode === "rate" ? rate : null,
-        tva_amount: tvaMode === "amount" ? Number(tvaManual) || 0 : null,
+        tva_amount: tvaMode === "amount" ? parseAmount(tvaManual) : null,
       };
       if (editingId) await updateRevenue(editingId, fields);
       else await upsertRevenue({ establishment_id: profile.establishment_id, note: null, created_by: profile.id, ...fields });
@@ -513,9 +513,9 @@ function EntryView({ profile, items, defaultRate, reload, scrollToTop }: { profi
         )}
         {totalTTC > 0 && (
           <View style={styles.tvaPreview}>
-            <Text style={styles.muted}>TTC {fmtEUR(totalTTC)}</Text>
-            <Text style={styles.tvaPreviewStrong}>HT {fmtEUR(previewHT)}</Text>
-            <Text style={styles.muted}>TVA {fmtEUR(previewTVA)}</Text>
+            <Text style={styles.tvaPreviewStrong}>Brut (TTC) {fmtEUR(totalTTC)}</Text>
+            <Text style={styles.muted}>− TVA {fmtEUR(previewTVA)}</Text>
+            <Text style={styles.tvaPreviewStrong}>= Net (HT) {fmtEUR(previewHT)}</Text>
           </View>
         )}
 

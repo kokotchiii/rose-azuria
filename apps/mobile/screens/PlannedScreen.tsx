@@ -11,7 +11,7 @@ import {
   type PlanStatus,
   type PlannedExpense,
 } from "../lib/data";
-import { fmtDate, fmtEUR, todayISO } from "../lib/format";
+import { fmtDate, fmtEUR, parseAmount, todayISO } from "../lib/format";
 import { supabase } from "../supabaseClient";
 import type { TaskPriority } from "../lib/data";
 import { colors, radius, space, TOUCH, type } from "../theme";
@@ -214,7 +214,7 @@ function PlanForm({ profile, reload }: { profile: Profile; reload: () => void })
       await createPlannedExpense({
         establishment_id: profile.establishment_id,
         label: label.trim(),
-        estimated_amount: Number(amount) || 0,
+        estimated_amount: parseAmount(amount),
         category: category.trim() || null,
         priority,
         target_date: target || null,

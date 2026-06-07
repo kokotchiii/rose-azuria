@@ -17,6 +17,13 @@ export function fmtDate(d: string | null | undefined): string {
   return `${day}/${m}/${y}`;
 }
 
+// Parse un montant saisi en tolérant la virgule décimale (FR) et les espaces.
+// "12,50" → 12.5 ; "" / invalide → 0.
+export function parseAmount(s: string): number {
+  const n = Number(String(s ?? "").replace(/\s/g, "").replace(",", "."));
+  return Number.isFinite(n) ? n : 0;
+}
+
 export function todayISO(): string {
   return new Date().toISOString().slice(0, 10);
 }
