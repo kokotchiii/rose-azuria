@@ -85,7 +85,9 @@ export interface WindowStats {
   cash: number; cb: number; other: number;
   count: number;           // nb de jours-service
   days: number;            // nb de jours distincts avec recette
+  weeks: number;           // nb de semaines distinctes avec recette
   avgPerDay: number;       // CA moyen par jour avec recette
+  avgPerWeek: number;      // CA moyen par semaine avec recette
   avgCoversPerDay: number; // couverts moyens par jour avec recette
   bestDay: { date: string; value: number } | null;
 }
@@ -104,13 +106,30 @@ export function windowStats(rows: RevenueRow[], amount: AmountFn = revenueTotal)
   for (const [date, value] of byDay) if (!bestDay || value > bestDay.value) bestDay = { date, value };
   const days = byDay.size;
 
+  const weekKeys = new Set<string>();
+  for (const r of rows) { const wk = isoWeek(dateOnly(r.revenue_date)); weekKeys.add(`${wk.year}-${wk.week}`); }
+  const weeks = weekKeys.size;
+
   return {
     ca, covers, panier: covers > 0 ? ca / covers : 0, cash, cb, other,
-    count: rows.length, days,
+    count: rows.length, days, weeks,
     avgPerDay: days > 0 ? ca / days : 0,
+    avgPerWeek: weeks > 0 ? ca / weeks : 0,
     avgCoversPerDay: days > 0 ? covers / days : 0,
     bestDay,
   };
+}
+
+// CA MOYEN par jour de semaine (total du jour ÷ nombre d'occurrences de ce jour).
+export function byWeekdayAvg(rows: RevenueRow[], amount: AmountFn = revenueTotal): Point[] {
+  const sums = new Array(7).fill(0);
+  const days: Array<Set<string>> = Array.from({ length: 7 }, () => new Set<string>());
+  for (const r of rows) {
+    const wd = (dateOnly(r.revenue_date).getDay() + 6) % 7; // lundi = 0
+    sums[wd] += amount(r);
+    days[wd].add(r.revenue_date);
+  }
+  return WEEKDAYS.map((label, i) => ({ label, value: days[i].size > 0 ? sums[i] / days[i].size : 0 }));
 }
 
 // ---------- Projections ----------

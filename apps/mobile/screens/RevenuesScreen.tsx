@@ -13,7 +13,7 @@ import {
   type RevenueRow,
   type Service,
 } from "../lib/data";
-import { caSeries, byWeekday, project, windowStart, windowStats, type AmountFn, type Gran, type Horizon, type ScheduleCfg } from "../lib/stats";
+import { caSeries, byWeekdayAvg, project, windowStart, windowStats, type AmountFn, type Gran, type Horizon, type ScheduleCfg } from "../lib/stats";
 import { getGrowthTarget, setGrowthTarget } from "../lib/goals";
 import {
   getDefaultTvaRate, setDefaultTvaRate, TVA_DEFAULT, TVA_RATES,
@@ -22,7 +22,7 @@ import {
 } from "../lib/settings";
 import { fmtDate, fmtEUR, parseAmount, todayISO } from "../lib/format";
 import { colors, radius, space, TOUCH, type } from "../theme";
-import { Card, DateField, Empty, Kpi, Loading, Pill, Screen, SectionTitle, Segmented } from "./ui";
+import { Card, DateField, Empty, Kpi, Loading, Pill, Screen, SectionTitle, Segmented, Select } from "./ui";
 
 const WEEKDAYS_FULL = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"];
 import { BarList, LineChart, StackBar } from "./charts";
@@ -125,60 +125,68 @@ function StatsView({
   onChangeOpeningDate: (d: string) => void;
 }) {
   const [gran, setGran] = useState<Gran>("day");
-  const [basis, setBasis] = useState<Basis>("ttc");
+  const [svcFilter, setSvcFilter] = useState<Service | "all">("all");
 
-  // Sélecteur de montant : TTC ou HT (net de TVA).
-  const amount: AmountFn = basis === "ht" ? (r) => revenueHT(r, defaultRate) : revenueTotal;
+  // Priorité au HT : tous les graphiques/moyennes sont en net de TVA. Le TTC est affiché à côté.
+  const amount: AmountFn = (r) => revenueHT(r, defaultRate);
 
   const win = useMemo(() => {
     const from = windowStart(gran);
-    const rows = items.filter((r) => r.revenue_date >= from);
+    const rows = items.filter((r) => r.revenue_date >= from && (svcFilter === "all" || r.service === svcFilter));
     const st = windowStats(rows, amount);
+    const caTTC = rows.reduce((s, r) => s + revenueTotal(r), 0);
     const series = caSeries(rows, gran, amount);
     const svc = new Map<string, number>();
     for (const r of rows) svc.set(r.service, (svc.get(r.service) ?? 0) + amount(r));
     const byService = SERVICES.map((s) => ({ label: s.label, value: svc.get(s.key) ?? 0 })).filter((x) => x.value > 0);
-    const weekday = byWeekday(rows, amount).filter((x) => x.value > 0);
+    const weekdayAvg = byWeekdayAvg(rows, amount).filter((x) => x.value > 0);
     const tva = rows.reduce((s, r) => s + revenueTVA(r, defaultRate), 0);
-    return { st, series, byService, weekday, tva };
-  }, [items, gran, basis, defaultRate]);
+    return { st, caTTC, series, byService, weekdayAvg, tva };
+  }, [items, gran, svcFilter, defaultRate]);
 
   const granLabel = GRANS.find((g) => g.key === gran)?.label.toLowerCase() ?? "";
-  const caLabel = basis === "ht" ? "Chiffre d'affaires HT" : "Chiffre d'affaires TTC";
   const { st } = win;
 
   return (
     <>
-      <Segmented<Basis>
-        options={[{ key: "ttc", label: "TTC (brut)" }, { key: "ht", label: "HT (net)" }]}
-        value={basis}
-        onChange={setBasis}
-      />
-
       <SectionTitle>Granularité</SectionTitle>
       <Segmented<Gran> options={GRANS} value={gran} onChange={setGran} />
+
+      <SectionTitle>Filtrer par service</SectionTitle>
+      <Select<string>
+        value={svcFilter}
+        options={[{ key: "all", label: "Tous les services" }, ...SERVICES.map((s) => ({ key: s.key, label: s.label }))]}
+        onChange={(k) => setSvcFilter(k as Service | "all")}
+      />
 
       {st.count === 0 ? (
         <Empty icon="bar-chart-outline" text="Aucune recette sur cette période." />
       ) : (
         <>
+          {/* CA HT prioritaire, TTC à côté */}
           <View style={styles.kpiRow}>
-            <Kpi label={caLabel} value={fmtEUR(st.ca)} tone="good" />
+            <Kpi label="CA HT (net)" value={fmtEUR(st.ca)} tone="good" />
+            <Kpi label="CA TTC (brut)" value={fmtEUR(win.caTTC)} />
+          </View>
+          <View style={styles.kpiRow}>
+            <Kpi label="TVA collectée" value={fmtEUR(win.tva)} tone="warn" />
             <Kpi label="Couverts" value={String(st.covers)} />
           </View>
+
+          <SectionTitle>Moyennes (HT)</SectionTitle>
           <View style={styles.kpiRow}>
-            <Kpi label={`CA moyen / jour${basis === "ht" ? " (HT)" : ""}`} value={fmtEUR(st.avgPerDay)} />
-            <Kpi label="Couverts moyens / jour" value={st.avgCoversPerDay > 0 ? String(Math.round(st.avgCoversPerDay)) : "—"} />
+            <Kpi label="CA moyen / jour" value={fmtEUR(st.avgPerDay)} tone="good" />
+            <Kpi label="CA moyen / semaine" value={fmtEUR(st.avgPerWeek)} tone="good" />
           </View>
           <View style={styles.kpiRow}>
-            <Kpi label={`Panier moyen / couvert${basis === "ht" ? " (HT)" : ""}`} value={st.covers > 0 ? fmtEUR(st.panier) : "—"} />
-            <Kpi label="TVA collectée" value={fmtEUR(win.tva)} tone="warn" />
+            <Kpi label="Couverts moyens / jour" value={st.avgCoversPerDay > 0 ? String(Math.round(st.avgCoversPerDay)) : "—"} />
+            <Kpi label="Panier moyen / couvert" value={st.covers > 0 ? fmtEUR(st.panier) : "—"} />
           </View>
           {st.bestDay && (
             <Kpi label={`Meilleur jour · ${fmtDate(st.bestDay.date)}`} value={fmtEUR(st.bestDay.value)} tone="good" />
           )}
 
-          <SectionTitle>Évolution du chiffre d'affaires (par {granLabel})</SectionTitle>
+          <SectionTitle>Évolution du CA HT (par {granLabel})</SectionTitle>
           <Card>
             {win.series.length > 1 ? (
               <LineChart data={win.series} format={fmtEUR} />
@@ -187,24 +195,28 @@ function StatsView({
             )}
           </Card>
 
-          <SectionTitle>Chiffre d'affaires par {granLabel}</SectionTitle>
+          <SectionTitle>CA HT par {granLabel}</SectionTitle>
           <Card>
             <BarList data={[...win.series].reverse()} format={fmtEUR} />
           </Card>
 
-          <SectionTitle>Répartition par service</SectionTitle>
+          <SectionTitle>CA HT moyen par jour de semaine</SectionTitle>
           <Card>
-            <BarList data={win.byService} format={fmtEUR} />
-          </Card>
-
-          <SectionTitle>Par jour de semaine</SectionTitle>
-          <Card>
-            {win.weekday.length > 0 ? (
-              <BarList data={win.weekday} format={fmtEUR} color={colors.gold} />
+            {win.weekdayAvg.length > 0 ? (
+              <BarList data={win.weekdayAvg} format={fmtEUR} color={colors.gold} />
             ) : (
               <Text style={styles.muted}>Aucune donnée.</Text>
             )}
           </Card>
+
+          {svcFilter === "all" && (
+            <>
+              <SectionTitle>Répartition par service (HT)</SectionTitle>
+              <Card>
+                <BarList data={win.byService} format={fmtEUR} />
+              </Card>
+            </>
+          )}
 
           <SectionTitle>Moyens d'encaissement (TTC)</SectionTitle>
           <Card>
@@ -232,7 +244,7 @@ function StatsView({
         Appliqué aux recettes sans taux précis pour estimer le HT. Tu peux fixer un taux par recette à la saisie.
       </Text>
 
-      <ProjectionsCard items={items} amount={amount} basis={basis} cfg={cfg} />
+      <ProjectionsCard items={items} amount={amount} basis="ht" cfg={cfg} />
 
       <ScheduleEditor
         schedule={schedule}
