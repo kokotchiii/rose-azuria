@@ -145,6 +145,11 @@ function StatsView({ items, defaultRate, onChangeDefaultRate }: { items: Revenue
             )}
           </Card>
 
+          <SectionTitle>Chiffre d'affaires par {granLabel}</SectionTitle>
+          <Card>
+            <BarList data={[...win.series].reverse()} format={fmtEUR} />
+          </Card>
+
           <SectionTitle>Répartition par service</SectionTitle>
           <Card>
             <BarList data={win.byService} format={fmtEUR} />
