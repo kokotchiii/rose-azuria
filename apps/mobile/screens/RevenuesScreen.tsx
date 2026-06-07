@@ -11,7 +11,9 @@ import {
   type RevenueRow,
   type Service,
 } from "../lib/data";
-import { daysAgoISO, fmtDate, fmtDayShort, fmtEUR, startOfMonthISO, todayISO } from "../lib/format";
+import { caSeries, byWeekday, project, windowStart, windowStats, type Gran, type Horizon } from "../lib/stats";
+import { getGrowthTarget, setGrowthTarget } from "../lib/goals";
+import { fmtDate, fmtEUR, todayISO } from "../lib/format";
 import { colors, radius, space, TOUCH, type } from "../theme";
 import { Card, DateField, Empty, Kpi, Loading, Pill, Screen, SectionTitle } from "./ui";
 import { BarList, LineChart, StackBar } from "./charts";
@@ -23,8 +25,20 @@ const SERVICES: { key: Service; label: string }[] = [
   { key: "autre", label: "Autre" },
 ];
 
+const GRANS: { key: Gran; label: string }[] = [
+  { key: "day", label: "Jour" },
+  { key: "week", label: "Semaine" },
+  { key: "month", label: "Mois" },
+  { key: "year", label: "Année" },
+];
+
+const HORIZONS: { key: Horizon; label: string }[] = [
+  { key: "week", label: "Semaine" },
+  { key: "month", label: "Mois" },
+  { key: "year", label: "Année" },
+];
+
 type View2 = "stats" | "entry";
-type StatsPeriod = "30j" | "month" | "all";
 
 export function RevenuesScreen({ profile }: { profile: Profile }) {
   const [items, setItems] = useState<RevenueRow[]>([]);
@@ -59,76 +73,175 @@ export function RevenuesScreen({ profile }: { profile: Profile }) {
 
 // ---------- Vue Statistiques ----------
 function StatsView({ items }: { items: RevenueRow[] }) {
-  const [period, setPeriod] = useState<StatsPeriod>("30j");
+  const [gran, setGran] = useState<Gran>("day");
 
-  const stats = useMemo(() => {
-    const from = period === "30j" ? daysAgoISO(29) : period === "month" ? startOfMonthISO() : "0000-00-00";
+  const win = useMemo(() => {
+    const from = windowStart(gran);
     const rows = items.filter((r) => r.revenue_date >= from);
-    const ca = rows.reduce((s, r) => s + revenueTotal(r), 0);
-    const covers = rows.reduce((s, r) => s + (r.covers ?? 0), 0);
-    const cash = rows.reduce((s, r) => s + Number(r.amount_cash || 0), 0);
-    const cb = rows.reduce((s, r) => s + Number(r.amount_cb || 0), 0);
-    const other = rows.reduce((s, r) => s + Number(r.amount_other || 0), 0);
-
+    const st = windowStats(rows);
+    const series = caSeries(rows, gran);
     const svc = new Map<string, number>();
     for (const r of rows) svc.set(r.service, (svc.get(r.service) ?? 0) + revenueTotal(r));
     const byService = SERVICES.map((s) => ({ label: s.label, value: svc.get(s.key) ?? 0 })).filter((x) => x.value > 0);
+    const weekday = byWeekday(rows).filter((x) => x.value > 0);
+    return { st, series, byService, weekday };
+  }, [items, gran]);
 
-    const byDay = new Map<string, number>();
-    for (const r of rows) byDay.set(r.revenue_date, (byDay.get(r.revenue_date) ?? 0) + revenueTotal(r));
-    const series = [...byDay.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([d, v]) => ({ label: fmtDayShort(d), value: v }));
-
-    return { ca, covers, panier: covers > 0 ? ca / covers : 0, cash, cb, other, byService, series, count: rows.length };
-  }, [items, period]);
+  const granLabel = GRANS.find((g) => g.key === gran)?.label.toLowerCase() ?? "";
+  const { st } = win;
 
   return (
     <>
+      <SectionTitle>Granularité</SectionTitle>
       <View style={styles.periodRow}>
-        <Pill label="30 jours" active={period === "30j"} onPress={() => setPeriod("30j")} />
-        <Pill label="Ce mois" active={period === "month"} onPress={() => setPeriod("month")} />
-        <Pill label="Tout" active={period === "all"} onPress={() => setPeriod("all")} />
+        {GRANS.map((g) => <Pill key={g.key} label={g.label} active={gran === g.key} onPress={() => setGran(g.key)} />)}
       </View>
 
-      {stats.count === 0 ? (
+      {st.count === 0 ? (
         <Empty icon="bar-chart-outline" text="Aucune recette sur cette période." />
       ) : (
         <>
           <View style={styles.kpiRow}>
-            <Kpi label="Chiffre d'affaires" value={fmtEUR(stats.ca)} tone="good" />
-            <Kpi label="Couverts" value={String(stats.covers)} />
+            <Kpi label="Chiffre d'affaires" value={fmtEUR(st.ca)} tone="good" />
+            <Kpi label="Couverts" value={String(st.covers)} />
           </View>
-          <Kpi label="Panier moyen / couvert" value={stats.covers > 0 ? fmtEUR(stats.panier) : "—"} />
+          <View style={styles.kpiRow}>
+            <Kpi label="Panier moyen / couvert" value={st.covers > 0 ? fmtEUR(st.panier) : "—"} />
+            <Kpi label="Moyenne / jour" value={fmtEUR(st.avgPerDay)} />
+          </View>
+          {st.bestDay && (
+            <Kpi label={`Meilleur jour · ${fmtDate(st.bestDay.date)}`} value={fmtEUR(st.bestDay.value)} tone="good" />
+          )}
 
-          <SectionTitle>Évolution du chiffre d'affaires</SectionTitle>
+          <SectionTitle>Évolution du chiffre d'affaires (par {granLabel})</SectionTitle>
           <Card>
-            {stats.series.length > 1 ? (
-              <LineChart data={stats.series} />
+            {win.series.length > 1 ? (
+              <LineChart data={win.series} format={fmtEUR} />
             ) : (
-              <Text style={styles.muted}>Pas assez de jours pour tracer une courbe (au moins 2).</Text>
+              <Text style={styles.muted}>Pas assez de points pour tracer une courbe (au moins 2).</Text>
             )}
           </Card>
 
           <SectionTitle>Répartition par service</SectionTitle>
           <Card>
-            <BarList data={stats.byService} format={fmtEUR} />
+            <BarList data={win.byService} format={fmtEUR} />
+          </Card>
+
+          <SectionTitle>Par jour de semaine</SectionTitle>
+          <Card>
+            {win.weekday.length > 0 ? (
+              <BarList data={win.weekday} format={fmtEUR} color={colors.gold} />
+            ) : (
+              <Text style={styles.muted}>Aucune donnée.</Text>
+            )}
           </Card>
 
           <SectionTitle>Moyens d'encaissement</SectionTitle>
           <Card>
             <StackBar
               segments={[
-                { label: "Espèces", value: stats.cash, color: colors.success },
-                { label: "CB", value: stats.cb, color: colors.primary },
-                { label: "Autre", value: stats.other, color: colors.gold },
+                { label: "Espèces", value: st.cash, color: colors.success },
+                { label: "CB", value: st.cb, color: colors.primary },
+                { label: "Autre", value: st.other, color: colors.gold },
               ]}
             />
             <Text style={[styles.muted, { marginTop: space.sm }]}>
-              Esp. {fmtEUR(stats.cash)} · CB {fmtEUR(stats.cb)} · Autre {fmtEUR(stats.other)}
+              Esp. {fmtEUR(st.cash)} · CB {fmtEUR(st.cb)} · Autre {fmtEUR(st.other)}
             </Text>
           </Card>
         </>
       )}
+
+      <ProjectionsCard items={items} />
     </>
+  );
+}
+
+// ---------- Carte Projections + objectif ----------
+function ProjectionsCard({ items }: { items: RevenueRow[] }) {
+  const [horizon, setHorizon] = useState<Horizon>("month");
+  const [growth, setGrowth] = useState(10);
+
+  useEffect(() => { getGrowthTarget().then(setGrowth); }, []);
+  function changeGrowth(delta: number) {
+    setGrowth((g) => {
+      const next = Math.max(-50, Math.min(200, g + delta));
+      setGrowthTarget(next);
+      return next;
+    });
+  }
+
+  const p = useMemo(() => project(items, horizon, growth), [items, horizon, growth]);
+
+  const hLabel = HORIZONS.find((h) => h.key === horizon)?.label.toLowerCase() ?? "";
+  const onTrack = p.objective <= 0 ? null : p.projected >= p.objective;
+  const gapPct = p.objective > 0 ? Math.round(((p.projected - p.objective) / p.objective) * 100) : 0;
+  // Échelle commune pour les deux barres (réalisé/projection vs objectif).
+  const scale = Math.max(p.projected, p.objective, p.actual, 1);
+
+  return (
+    <>
+      <SectionTitle>Projection du chiffre d'affaires</SectionTitle>
+      <View style={styles.periodRow}>
+        {HORIZONS.map((h) => <Pill key={h.key} label={h.label} active={horizon === h.key} onPress={() => setHorizon(h.key)} />)}
+      </View>
+
+      <Card>
+        {/* Objectif de croissance */}
+        <View style={styles.objRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.label}>Objectif de croissance</Text>
+            <Text style={styles.muted}>vs {hLabel} précédent{p.prev > 0 ? ` (${fmtEUR(p.prev)})` : ""}</Text>
+          </View>
+          <View style={styles.stepper}>
+            <Pressable style={styles.stepBtn} onPress={() => changeGrowth(-5)} accessibilityRole="button" accessibilityLabel="Diminuer l'objectif">
+              <Ionicons name="remove" size={20} color={colors.text} />
+            </Pressable>
+            <Text style={styles.stepVal}>{growth > 0 ? "+" : ""}{growth}%</Text>
+            <Pressable style={styles.stepBtn} onPress={() => changeGrowth(5)} accessibilityRole="button" accessibilityLabel="Augmenter l'objectif">
+              <Ionicons name="add" size={20} color={colors.text} />
+            </Pressable>
+          </View>
+        </View>
+
+        <View style={styles.sep} />
+
+        <Text style={styles.muted}>
+          {p.elapsed}/{p.total} jours écoulés · réalisé {fmtEUR(p.actual)}
+        </Text>
+
+        <ProjBar label="Projection fin de période" value={p.projected} scale={scale} color={colors.primary} />
+        <ProjBar label={`Objectif (${growth > 0 ? "+" : ""}${growth}%)`} value={p.objective} scale={scale} color={colors.gold} />
+
+        {onTrack !== null && (
+          <View style={[styles.badge, { backgroundColor: onTrack ? colors.successBg : colors.dangerBg }]}>
+            <Ionicons name={onTrack ? "trending-up" : "trending-down"} size={16} color={onTrack ? colors.success : colors.danger} />
+            <Text style={[styles.badgeText, { color: onTrack ? colors.success : colors.danger }]}>
+              {onTrack
+                ? `En avance sur l'objectif (+${gapPct}% projeté)`
+                : `En retard sur l'objectif (${gapPct}% projeté)`}
+            </Text>
+          </View>
+        )}
+        {p.prev <= 0 && (
+          <Text style={styles.muted}>Pas d'historique sur le {hLabel} précédent : l'objectif s'affinera avec le temps.</Text>
+        )}
+      </Card>
+    </>
+  );
+}
+
+function ProjBar({ label, value, scale, color }: { label: string; value: number; scale: number; color: string }) {
+  return (
+    <View style={{ gap: 4, marginTop: space.sm }}>
+      <View style={styles.barHead}>
+        <Text style={styles.barLabel}>{label}</Text>
+        <Text style={styles.barVal}>{fmtEUR(value)}</Text>
+      </View>
+      <View style={styles.barTrack}>
+        <View style={[styles.barFill, { width: `${Math.max(2, (value / scale) * 100)}%`, backgroundColor: color }]} />
+      </View>
+    </View>
   );
 }
 
@@ -292,7 +405,7 @@ function Field({ label, children, flex }: { label: string; children: React.React
 
 const styles = StyleSheet.create({
   tabs: { flexDirection: "row", gap: space.sm },
-  periodRow: { flexDirection: "row", gap: space.sm },
+  periodRow: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
   kpiRow: { flexDirection: "row", gap: space.md },
   muted: { ...type.small, color: colors.textMuted },
   row: { flexDirection: "row", gap: space.md },
@@ -313,4 +426,17 @@ const styles = StyleSheet.create({
   name: { ...type.title, color: colors.text },
   amount: { ...type.title, color: colors.success },
   meta: { ...type.small, color: colors.textMuted, flex: 1 },
+  // projections
+  objRow: { flexDirection: "row", alignItems: "center", gap: space.md },
+  stepper: { flexDirection: "row", alignItems: "center", gap: space.sm, backgroundColor: colors.chipBg, borderRadius: radius.pill, padding: 4 },
+  stepBtn: { width: 36, height: 36, borderRadius: radius.pill, backgroundColor: colors.surface, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: colors.border },
+  stepVal: { ...type.title, color: colors.text, minWidth: 48, textAlign: "center" },
+  sep: { height: 1, backgroundColor: colors.border, marginVertical: space.sm },
+  barHead: { flexDirection: "row", justifyContent: "space-between", gap: space.sm },
+  barLabel: { ...type.small, color: colors.text, flex: 1 },
+  barVal: { ...type.small, color: colors.textMuted },
+  barTrack: { height: 10, borderRadius: radius.pill, backgroundColor: colors.chipBg, overflow: "hidden" },
+  barFill: { height: 10, borderRadius: radius.pill },
+  badge: { flexDirection: "row", alignItems: "center", gap: space.sm, padding: space.sm, borderRadius: radius.md, marginTop: space.sm },
+  badgeText: { ...type.small, fontWeight: "600", flex: 1 },
 });

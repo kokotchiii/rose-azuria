@@ -1,0 +1,147 @@
+// Agrégations et projections pour les statistiques de recettes.
+// Fonctions pures (testables), sans dépendance React.
+
+import { revenueTotal, type RevenueRow } from "./data";
+
+export type Gran = "day" | "week" | "month" | "year";
+export type Horizon = "week" | "month" | "year";
+
+export interface Point { label: string; value: number }
+
+const MONTHS_SHORT = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."];
+const WEEKDAYS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
+
+// ---------- utilitaires de date (locale, app RN) ----------
+function pad(n: number): string { return String(n).padStart(2, "0"); }
+function isoOf(d: Date): string { return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
+function dateOnly(iso: string): Date { const [y, m, d] = iso.slice(0, 10).split("-").map(Number); return new Date(y, m - 1, d); }
+function addDays(d: Date, n: number): Date { const c = new Date(d); c.setDate(c.getDate() + n); return c; }
+const DAY_MS = 86_400_000;
+
+// Numéro de semaine ISO (lundi = début, la semaine 1 contient le 1er jeudi).
+function isoWeek(date: Date): { year: number; week: number } {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7; // dimanche → 7
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  const week = Math.ceil(((d.getTime() - yearStart.getTime()) / DAY_MS + 1) / 7);
+  return { year: d.getUTCFullYear(), week };
+}
+
+// Clé + étiquette d'un regroupement selon la granularité.
+function bucket(iso: string, g: Gran): { key: string; label: string } {
+  const ymd = iso.slice(0, 10);
+  const [y, m, d] = ymd.split("-");
+  if (g === "day") return { key: ymd, label: `${d}/${m}` };
+  if (g === "month") return { key: `${y}-${m}`, label: `${MONTHS_SHORT[+m - 1]} ${y.slice(2)}` };
+  if (g === "year") return { key: y, label: y };
+  const wk = isoWeek(dateOnly(ymd));
+  return { key: `${wk.year}-W${pad(wk.week)}`, label: `S${wk.week}` };
+}
+
+// Date de départ de la fenêtre affichée selon la granularité.
+export function windowStart(g: Gran, now: Date = new Date()): string {
+  if (g === "day") return isoOf(addDays(now, -29)); // 30 derniers jours
+  if (g === "week") return isoOf(addDays(now, -7 * 11)); // ~12 semaines
+  if (g === "month") return isoOf(new Date(now.getFullYear(), now.getMonth() - 11, 1)); // 12 mois
+  return "0000-00-00"; // année → tout l'historique
+}
+
+// Série de CA agrégée par bucket, triée chronologiquement.
+export function caSeries(rows: RevenueRow[], g: Gran): Point[] {
+  const map = new Map<string, { label: string; value: number }>();
+  for (const r of rows) {
+    const b = bucket(r.revenue_date, g);
+    const cur = map.get(b.key) ?? { label: b.label, value: 0 };
+    cur.value += revenueTotal(r);
+    map.set(b.key, cur);
+  }
+  return [...map.entries()].sort((a, b2) => (a[0] < b2[0] ? -1 : 1)).map(([, v]) => ({ label: v.label, value: v.value }));
+}
+
+// Répartition du CA par jour de semaine (Lun→Dim).
+export function byWeekday(rows: RevenueRow[]): Point[] {
+  const sums = new Array(7).fill(0);
+  for (const r of rows) {
+    const wd = (dateOnly(r.revenue_date).getDay() + 6) % 7; // lundi = 0
+    sums[wd] += revenueTotal(r);
+  }
+  return WEEKDAYS.map((label, i) => ({ label, value: sums[i] }));
+}
+
+export interface WindowStats {
+  ca: number;
+  covers: number;
+  panier: number;          // CA / couvert
+  cash: number; cb: number; other: number;
+  count: number;           // nb de jours-service
+  days: number;            // nb de jours distincts avec recette
+  avgPerDay: number;       // CA moyen par jour avec recette
+  bestDay: { date: string; value: number } | null;
+}
+
+export function windowStats(rows: RevenueRow[]): WindowStats {
+  const ca = rows.reduce((s, r) => s + revenueTotal(r), 0);
+  const covers = rows.reduce((s, r) => s + (r.covers ?? 0), 0);
+  const cash = rows.reduce((s, r) => s + Number(r.amount_cash || 0), 0);
+  const cb = rows.reduce((s, r) => s + Number(r.amount_cb || 0), 0);
+  const other = rows.reduce((s, r) => s + Number(r.amount_other || 0), 0);
+
+  const byDay = new Map<string, number>();
+  for (const r of rows) byDay.set(r.revenue_date, (byDay.get(r.revenue_date) ?? 0) + revenueTotal(r));
+  let bestDay: WindowStats["bestDay"] = null;
+  for (const [date, value] of byDay) if (!bestDay || value > bestDay.value) bestDay = { date, value };
+  const days = byDay.size;
+
+  return { ca, covers, panier: covers > 0 ? ca / covers : 0, cash, cb, other, count: rows.length, days, avgPerDay: days > 0 ? ca / days : 0, bestDay };
+}
+
+// ---------- Projections ----------
+export interface Projection {
+  horizon: Horizon;
+  actual: number;     // réalisé depuis le début de la période en cours
+  projected: number;  // extrapolation run-rate à la fin de la période
+  prev: number;       // total de la période précédente (complète)
+  objective: number;  // objectif = prev × (1 + croissance%)
+  elapsed: number;    // jours écoulés (inclus aujourd'hui)
+  total: number;      // jours dans la période
+}
+
+function horizonBounds(h: Horizon, now: Date): { start: Date; end: Date; prevStart: Date; prevEnd: Date } {
+  if (h === "week") {
+    const dow = (now.getDay() + 6) % 7; // lundi = 0
+    const start = addDays(new Date(now.getFullYear(), now.getMonth(), now.getDate()), -dow);
+    const end = addDays(start, 7);
+    return { start, end, prevStart: addDays(start, -7), prevEnd: start };
+  }
+  if (h === "month") {
+    const start = new Date(now.getFullYear(), now.getMonth(), 1);
+    const end = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    return { start, end, prevStart: new Date(now.getFullYear(), now.getMonth() - 1, 1), prevEnd: start };
+  }
+  const start = new Date(now.getFullYear(), 0, 1);
+  const end = new Date(now.getFullYear() + 1, 0, 1);
+  return { start, end, prevStart: new Date(now.getFullYear() - 1, 0, 1), prevEnd: start };
+}
+
+function sumBetween(rows: RevenueRow[], startIso: string, endIso: string): number {
+  // [start, end) en comparaison de chaînes ISO.
+  let s = 0;
+  for (const r of rows) if (r.revenue_date >= startIso && r.revenue_date < endIso) s += revenueTotal(r);
+  return s;
+}
+
+export function project(rows: RevenueRow[], h: Horizon, growthPct: number, now: Date = new Date()): Projection {
+  const { start, end, prevStart, prevEnd } = horizonBounds(h, now);
+  const startIso = isoOf(start), endIso = isoOf(end);
+  const total = Math.round((end.getTime() - start.getTime()) / DAY_MS);
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const elapsed = Math.min(total, Math.max(1, Math.round((today.getTime() - start.getTime()) / DAY_MS) + 1));
+
+  const actual = sumBetween(rows, startIso, endIso);
+  const projected = elapsed > 0 ? (actual / elapsed) * total : 0;
+  const prev = sumBetween(rows, isoOf(prevStart), isoOf(prevEnd));
+  const objective = prev * (1 + growthPct / 100);
+
+  return { horizon: h, actual, projected, prev, objective, elapsed, total };
+}
