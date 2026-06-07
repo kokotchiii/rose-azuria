@@ -1,46 +1,68 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
-import { fetchAiCostThisMonth, fetchExpenses, fetchPendingReimbursements, type ExpenseListItem } from "../lib/data";
-import { fmtEUR, startOfMonthISO, todayISO } from "../lib/format";
+import {
+  fetchAiCostThisMonth,
+  fetchExpenses,
+  fetchPendingReimbursements,
+  fetchRevenues,
+  revenueTotal,
+  type ExpenseListItem,
+  type RevenueRow,
+} from "../lib/data";
+import { daysAgoISO, fmtDayShort, fmtEUR, startOfMonthISO, todayISO } from "../lib/format";
 import { supabase } from "../supabaseClient";
-import { colors, radius, space, type } from "../theme";
+import { colors, space, type } from "../theme";
 import { Card, Empty, Kpi, Loading, Pill, Screen, SectionTitle } from "./ui";
+import { Donut, LineChart } from "./charts";
+
+type Period = "month" | "30j" | "all";
+
+// Palette tournante pour les parts du donut des catégories.
+const CAT_COLORS = ["#DC2626", "#CA8A04", "#15803D", "#2563EB", "#7C3AED", "#DB2777", "#0891B2", "#EA580C", "#6B7280"];
 
 export function DashboardScreen() {
   const [expenses, setExpenses] = useState<ExpenseListItem[]>([]);
+  const [revenues, setRevenues] = useState<RevenueRow[]>([]);
   const [aiCost, setAiCost] = useState<{ total: number; count: number }>({ total: 0, count: 0 });
   const [reimbTotal, setReimbTotal] = useState(0); // à rembourser, tout-temps
-  const [period, setPeriod] = useState<"month" | "all">("month");
+  const [period, setPeriod] = useState<Period>("month");
   const [loading, setLoading] = useState(true);
 
+  const range = useMemo(() => {
+    if (period === "month") return { from: startOfMonthISO(), to: todayISO() };
+    if (period === "30j") return { from: daysAgoISO(29), to: todayISO() };
+    return {} as { from?: string; to?: string };
+  }, [period]);
+
   const load = useCallback(() => {
-    const filters = period === "month" ? { from: startOfMonthISO(), to: todayISO() } : {};
-    fetchExpenses(filters)
-      .then(setExpenses)
-      .catch(() => setExpenses([]))
+    Promise.all([fetchExpenses(range), fetchRevenues(range)])
+      .then(([exp, rev]) => { setExpenses(exp); setRevenues(rev); })
+      .catch(() => { setExpenses([]); setRevenues([]); })
       .finally(() => setLoading(false));
     fetchAiCostThisMonth().then(setAiCost).catch(() => setAiCost({ total: 0, count: 0 }));
     // Le « à rembourser » est indépendant de la période : c'est tout ce qui reste dû.
     fetchPendingReimbursements()
       .then((groups) => setReimbTotal(groups.reduce((s, g) => s + g.total, 0)))
       .catch(() => setReimbTotal(0));
-  }, [period]);
+  }, [range]);
 
   useEffect(() => {
     load();
-    // Temps réel : rafraîchit dès qu'une analyse IA (ai_usage) ou une dépense change.
+    // Temps réel : rafraîchit dès qu'une analyse IA, une dépense ou une recette change.
     const channel = supabase
       .channel("dashboard-live")
       .on("postgres_changes", { event: "*", schema: "public", table: "ai_usage" }, () => load())
       .on("postgres_changes", { event: "*", schema: "public", table: "expenses" }, () => load())
+      .on("postgres_changes", { event: "*", schema: "public", table: "revenues" }, () => load())
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [load]);
 
   const totals = useMemo(() => {
-    const total = expenses.reduce((s, e) => s + Number(e.amount_ttc), 0);
-    return { total, count: expenses.length };
-  }, [expenses]);
+    const dep = expenses.reduce((s, e) => s + Number(e.amount_ttc), 0);
+    const rev = revenues.reduce((s, r) => s + revenueTotal(r), 0);
+    return { dep, rev, net: rev - dep, count: expenses.length };
+  }, [expenses, revenues]);
 
   const byCategory = useMemo(() => {
     const map = new Map<string, number>();
@@ -48,47 +70,70 @@ export function DashboardScreen() {
       const k = e.category?.label ?? "Sans catégorie";
       map.set(k, (map.get(k) ?? 0) + Number(e.amount_ttc));
     }
-    return Array.from(map.entries()).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
+    return Array.from(map.entries())
+      .map(([name, value], i) => ({ label: name, value, color: CAT_COLORS[i % CAT_COLORS.length] }))
+      .sort((a, b) => b.value - a.value);
+  }, [expenses]);
+
+  // Évolution des dépenses par jour sur la période.
+  const expSeries = useMemo(() => {
+    const byDay = new Map<string, number>();
+    for (const e of expenses) byDay.set(e.expense_date, (byDay.get(e.expense_date) ?? 0) + Number(e.amount_ttc));
+    return [...byDay.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([d, v]) => ({ label: fmtDayShort(d), value: v }));
   }, [expenses]);
 
   if (loading) return <Loading />;
 
-  const max = byCategory[0]?.value ?? 1;
+  const periodLabel = period === "month" ? "ce mois" : period === "30j" ? "30 j" : "tout";
 
   return (
     <Screen>
       <View style={styles.periodRow}>
         <Pill label="Ce mois" active={period === "month"} onPress={() => setPeriod("month")} />
+        <Pill label="30 jours" active={period === "30j"} onPress={() => setPeriod("30j")} />
         <Pill label="Tout" active={period === "all"} onPress={() => setPeriod("all")} />
       </View>
 
       <View style={styles.kpiRow}>
-        <Kpi label={period === "month" ? "Dépenses du mois" : "Total dépenses"} value={fmtEUR(totals.total)} />
-        <Kpi label="Nombre" value={String(totals.count)} />
+        <Kpi label={`Recettes (${periodLabel})`} value={fmtEUR(totals.rev)} tone="good" />
+        <Kpi label={`Dépenses (${periodLabel})`} value={fmtEUR(totals.dep)} />
       </View>
-      <Kpi label="Notes de frais à rembourser (total)" value={fmtEUR(reimbTotal)} tone="warn" />
       <Kpi
-        label={`Coût IA ce mois · ${aiCost.count} analyse${aiCost.count > 1 ? "s" : ""} (API, USD)`}
-        value={`$${aiCost.total.toFixed(2)}`}
-        tone="good"
+        label={`Résultat net (${periodLabel})`}
+        value={fmtEUR(totals.net)}
+        tone={totals.net >= 0 ? "good" : "warn"}
       />
 
-      <SectionTitle>Par catégorie</SectionTitle>
+      <View style={styles.kpiRow}>
+        <Kpi label="À rembourser (total)" value={fmtEUR(reimbTotal)} tone="warn" />
+        <Kpi
+          label={`Coût IA ce mois · ${aiCost.count} analyse${aiCost.count > 1 ? "s" : ""}`}
+          value={`$${aiCost.total.toFixed(2)}`}
+        />
+      </View>
+
+      <SectionTitle>Dépenses par catégorie</SectionTitle>
       {byCategory.length === 0 ? (
         <Empty icon="pie-chart-outline" text="Aucune dépense sur cette période." />
       ) : (
         <Card>
-          {byCategory.map((c) => (
-            <View key={c.name} style={styles.barRow}>
-              <View style={styles.barHead}>
-                <Text style={styles.barLabel} numberOfLines={1}>{c.name}</Text>
-                <Text style={styles.barVal}>{fmtEUR(c.value)}</Text>
-              </View>
-              <View style={styles.barTrack}>
-                <View style={[styles.barFill, { width: `${Math.max(4, (c.value / max) * 100)}%` }]} />
-              </View>
-            </View>
-          ))}
+          <Donut
+            segments={byCategory}
+            centerValue={fmtEUR(totals.dep)}
+            centerLabel="total"
+            format={fmtEUR}
+          />
+        </Card>
+      )}
+
+      <SectionTitle>Évolution des dépenses</SectionTitle>
+      {expSeries.length > 1 ? (
+        <Card>
+          <LineChart data={expSeries} color={colors.primary} format={fmtEUR} />
+        </Card>
+      ) : (
+        <Card>
+          <Text style={styles.muted}>Pas assez de jours pour tracer une courbe (au moins 2).</Text>
         </Card>
       )}
     </Screen>
@@ -98,10 +143,5 @@ export function DashboardScreen() {
 const styles = StyleSheet.create({
   periodRow: { flexDirection: "row", gap: space.sm },
   kpiRow: { flexDirection: "row", gap: space.md },
-  barRow: { gap: 4, paddingVertical: 4 },
-  barHead: { flexDirection: "row", justifyContent: "space-between", gap: space.sm },
-  barLabel: { ...type.small, color: colors.text, flex: 1 },
-  barVal: { ...type.small, color: colors.textMuted },
-  barTrack: { height: 8, borderRadius: radius.pill, backgroundColor: colors.chipBg, overflow: "hidden" },
-  barFill: { height: 8, borderRadius: radius.pill, backgroundColor: colors.primary },
+  muted: { ...type.small, color: colors.textMuted },
 });
