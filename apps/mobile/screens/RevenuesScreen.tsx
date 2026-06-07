@@ -243,7 +243,7 @@ function ProjectionsCard({ items, amount, basis }: { items: RevenueRow[]; amount
         <View style={styles.sep} />
 
         <Text style={styles.muted}>
-          {p.elapsed}/{p.total} jours écoulés · réalisé {fmtEUR(p.actual)}
+          {p.elapsed}/{p.total} services écoulés · réalisé {fmtEUR(p.actual)}
         </Text>
 
         <ProjBar label="Projection fin de période" value={p.projected} scale={scale} color={colors.primary} />

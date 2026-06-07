@@ -11,6 +11,14 @@ export interface Point { label: string; value: number }
 // Sélecteur de montant d'une recette : TTC par défaut, ou HT selon la base choisie.
 export type AmountFn = (r: RevenueRow) => number;
 
+// ---------- Planning d'ouverture ----------
+// Nombre de services ouverts par jour de semaine (lundi = 0).
+// Midi + soir du lundi au vendredi (2), samedi soir (1), dimanche fermé (0) = 11 / semaine.
+export const SERVICES_PER_WEEKDAY = [2, 2, 2, 2, 2, 1, 0] as const;
+export const SERVICES_PER_WEEK = SERVICES_PER_WEEKDAY.reduce<number>((a, b) => a + b, 0); // 11
+// Date d'ouverture du restaurant : aucun service avant cette date.
+export const OPENING_DATE = "2026-06-02";
+
 const MONTHS_SHORT = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."];
 const WEEKDAYS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
 
@@ -111,11 +119,27 @@ export function windowStats(rows: RevenueRow[], amount: AmountFn = revenueTotal)
 export interface Projection {
   horizon: Horizon;
   actual: number;     // réalisé depuis le début de la période en cours
-  projected: number;  // extrapolation run-rate à la fin de la période
+  projected: number;  // extrapolation à la fin de la période (au prorata des services)
   prev: number;       // total de la période précédente (complète)
   objective: number;  // objectif = prev × (1 + croissance%)
-  elapsed: number;    // jours écoulés (inclus aujourd'hui)
-  total: number;      // jours dans la période
+  elapsed: number;    // services écoulés (depuis l'ouverture / début de période)
+  total: number;      // services prévus sur la période
+}
+
+// Compte les services ouverts dans [startIso, endIso), borne basse relevée à la
+// date d'ouverture (pas de service avant). Tient compte du planning hebdomadaire.
+function servicesBetween(startIso: string, endIso: string): number {
+  const from = startIso < OPENING_DATE ? OPENING_DATE : startIso;
+  if (from >= endIso) return 0;
+  const end = dateOnly(endIso);
+  let d = dateOnly(from);
+  let n = 0;
+  while (d < end) {
+    const wd = (d.getDay() + 6) % 7; // lundi = 0
+    n += SERVICES_PER_WEEKDAY[wd];
+    d = addDays(d, 1);
+  }
+  return n;
 }
 
 function horizonBounds(h: Horizon, now: Date): { start: Date; end: Date; prevStart: Date; prevEnd: Date } {
@@ -145,12 +169,15 @@ function sumBetween(rows: RevenueRow[], startIso: string, endIso: string, amount
 export function project(rows: RevenueRow[], h: Horizon, growthPct: number, amount: AmountFn = revenueTotal, now: Date = new Date()): Projection {
   const { start, end, prevStart, prevEnd } = horizonBounds(h, now);
   const startIso = isoOf(start), endIso = isoOf(end);
-  const total = Math.round((end.getTime() - start.getTime()) / DAY_MS);
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const elapsed = Math.min(total, Math.max(1, Math.round((today.getTime() - start.getTime()) / DAY_MS) + 1));
+
+  // Run-rate au prorata des services ouverts (et non des jours calendaires) :
+  // services écoulés (jusqu'à aujourd'hui inclus) vs services prévus sur la période.
+  const elapsed = servicesBetween(startIso, isoOf(addDays(today, 1)));
+  const total = servicesBetween(startIso, endIso);
 
   const actual = sumBetween(rows, startIso, endIso, amount);
-  const projected = elapsed > 0 ? (actual / elapsed) * total : 0;
+  const projected = elapsed > 0 ? (actual / elapsed) * total : actual;
   const prev = sumBetween(rows, isoOf(prevStart), isoOf(prevEnd), amount);
   const objective = prev * (1 + growthPct / 100);
 
