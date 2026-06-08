@@ -189,40 +189,48 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders() });
   if (!ANTHROPIC_API_KEY) return json({ error: "missing_anthropic_key" }, 500);
 
-  let body: { storage_path?: string; categories?: string[] };
+  let body: { storage_path?: string; storage_paths?: string[]; categories?: string[] };
   try {
     body = await req.json();
   } catch {
     return json({ error: "invalid_json_body" }, 400);
   }
 
-  const storagePath = body.storage_path;
+  // Accepte un tableau de pages (multi-photos) OU un chemin unique (rétro-compat).
+  const paths = (Array.isArray(body.storage_paths) && body.storage_paths.length)
+    ? body.storage_paths
+    : (body.storage_path ? [body.storage_path] : []);
   const categories  = body.categories?.length ? body.categories : DEFAULT_CATEGORIES;
-  if (!storagePath) return json({ error: "missing_storage_path" }, 400);
+  if (!paths.length) return json({ error: "missing_storage_path" }, 400);
 
-  // 1) Service-role pour lire le fichier dans Storage
+  // 1) Service-role pour lire les fichiers dans Storage ; on construit un bloc
+  //    de contenu par page (image ou PDF) → toutes envoyées dans un seul message.
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
-  const { data: fileBlob, error: dlErr } = await admin.storage.from("documents").download(storagePath);
-  if (dlErr || !fileBlob) {
-    return json({ error: "download_failed", details: dlErr?.message }, 404);
+  const sources: unknown[] = [];
+  for (const path of paths) {
+    const { data: fileBlob, error: dlErr } = await admin.storage.from("documents").download(path);
+    if (dlErr || !fileBlob) {
+      return json({ error: "download_failed", details: dlErr?.message, path }, 404);
+    }
+    const buf = new Uint8Array(await fileBlob.arrayBuffer());
+    const mediaType = fileBlob.type || "image/jpeg";
+
+    // HEIC : pas supporté côté serveur (limite mémoire). Message clair au client.
+    if (isHeic(buf, mediaType)) {
+      return json({
+        error: "heic_not_supported",
+        message: "Les photos HEIC (iPhone par défaut) ne sont pas supportées. Active 'Le plus compatible' dans Réglages → Appareil photo → Formats sur l'iPhone, ou envoie une capture d'écran.",
+      }, 415);
+    }
+
+    const b64 = bytesToBase64(buf);
+    sources.push(mediaType === "application/pdf"
+      ? { type: "document", source: { type: "base64", media_type: "application/pdf", data: b64 } }
+      : { type: "image",    source: { type: "base64", media_type: mediaType,         data: b64 } });
   }
 
-  const buf = new Uint8Array(await fileBlob.arrayBuffer());
-  const mediaType = fileBlob.type || "image/jpeg";
-
-  // 2) HEIC : pas supporté côté serveur (limite mémoire). Message clair au client.
-  if (isHeic(buf, mediaType)) {
-    return json({
-      error: "heic_not_supported",
-      message: "Les photos HEIC (iPhone par défaut) ne sont pas supportées. Active 'Le plus compatible' dans Réglages → Appareil photo → Formats sur l'iPhone, ou envoie une capture d'écran.",
-    }, 415);
-  }
-
-  const b64 = bytesToBase64(buf);
-  const isPdf = mediaType === "application/pdf";
-  const source = isPdf
-    ? { type: "document", source: { type: "base64", media_type: "application/pdf", data: b64 } }
-    : { type: "image",    source: { type: "base64", media_type: mediaType,         data: b64 } };
+  // 1er chemin : sert pour l'establishment_id (suivi coût).
+  const storagePath = paths[0];
 
   // 3) Appel Anthropic (timeout 60s)
   const controller = new AbortController();
@@ -240,7 +248,7 @@ Deno.serve(async (req: Request) => {
       },
       body: JSON.stringify({
         model: MODEL,
-        max_tokens: 2000,
+        max_tokens: 4096,
         // Pas de réflexion étendue pour une extraction bornée → plus rapide.
         thinking: { type: "disabled" },
         // effort bas = moins de sur-réflexion = latence réduite (réglable via ANTHROPIC_EFFORT).
@@ -249,9 +257,9 @@ Deno.serve(async (req: Request) => {
         system: [
           { type: "text", text: buildPrompt(categories), cache_control: { type: "ephemeral" } },
         ],
-        // Le message ne contient que l'image/PDF : seule partie qui change à chaque appel.
+        // Le message contient toutes les pages/photos (seule partie qui change à chaque appel).
         messages: [
-          { role: "user", content: [source, { type: "text", text: "Analyse ce justificatif et renvoie le JSON demandé." }] },
+          { role: "user", content: [...sources, { type: "text", text: "Analyse ce justificatif et renvoie le JSON demandé. Toutes les images/pages fournies forment UN SEUL document : consolide-les (le total TTC est en général sur la dernière page)." }] },
         ],
       }),
     });

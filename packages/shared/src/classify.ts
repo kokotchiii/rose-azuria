@@ -95,3 +95,83 @@ export async function uploadAndClassify(
     extraction,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Multi-pages : un même justificatif en plusieurs photos (ou un PDF).
+// Chaque page est uploadée séparément ; l'Edge Function les envoie TOUTES à
+// Claude dans un seul message → extraction unique consolidée.
+// ---------------------------------------------------------------------------
+
+export interface PageInput {
+  file: Blob | File | ArrayBuffer | Uint8Array;
+  contentType?: string; // ex "image/jpeg" | "application/pdf"
+}
+
+export interface UploadAndClassifyPagesParams {
+  client: SupabaseClient;
+  establishmentId: string;
+  pages: PageInput[];
+  fileBaseName: string;   // ex "facture-2026-06-08" (sans extension)
+  uploadedBy: string;
+  categories?: string[];
+}
+
+export async function uploadAndClassifyPages(
+  params: UploadAndClassifyPagesParams,
+): Promise<UploadAndClassifyResult & { storagePaths: string[] }> {
+  const { client, establishmentId, pages, fileBaseName, uploadedBy } = params;
+  const categories = params.categories ?? [...DEFAULT_CATEGORIES];
+  if (!pages.length) throw new Error("no_pages");
+
+  // 1) Upload de chaque page
+  const storagePaths: string[] = [];
+  for (let i = 0; i < pages.length; i++) {
+    const p = pages[i]!;
+    const ct = p.contentType ?? (p.file as File).type ?? "image/jpeg";
+    const ext = ct === "application/pdf" ? "pdf" : ct === "image/png" ? "png" : "jpg";
+    const name = pages.length > 1 ? `${fileBaseName}-p${i + 1}.${ext}` : `${fileBaseName}.${ext}`;
+    const path = buildStoragePath(establishmentId, name);
+    const { error: upErr } = await client.storage.from("documents").upload(path, p.file, { upsert: false, contentType: ct });
+    if (upErr) throw new Error(`upload_failed: ${upErr.message}`);
+    storagePaths.push(path);
+  }
+
+  // 2) Une seule ligne `documents` (la 1re page sert de référence/aperçu).
+  const firstPath = storagePaths[0]!;
+  const firstType = pages[0]!.contentType ?? null;
+  const { data: docRow, error: docErr } = await client
+    .from("documents")
+    .insert({
+      establishment_id: establishmentId,
+      storage_path: firstPath,
+      file_type: firstType,
+      uploaded_by: uploadedBy,
+      ai_status: "pending",
+    })
+    .select("id")
+    .single();
+  if (docErr || !docRow) throw new Error(`document_insert_failed: ${docErr?.message}`);
+
+  // 3) Edge Function — on envoie le tableau ET la 1re page (rétro-compat avec
+  //    une fonction pas encore redéployée : elle classifiera au moins la page 1).
+  const { data: fnData, error: fnErr } = await client.functions.invoke("classify-document", {
+    body: { storage_paths: storagePaths, storage_path: firstPath, categories },
+  });
+
+  if (fnErr || !fnData?.ok) {
+    let detail = "";
+    const ctx = (fnErr as unknown as { context?: Response })?.context;
+    if (ctx && typeof ctx.text === "function") {
+      try { detail = await ctx.text(); } catch { /* ignore */ }
+    } else if (fnData) {
+      detail = JSON.stringify(fnData);
+    }
+    await client.from("documents").update({ ai_status: "failed" }).eq("id", docRow.id);
+    throw new Error(`ai_failed: ${fnErr?.message ?? "error"}${detail ? ` — ${detail}` : ""}`);
+  }
+
+  const extraction = fnData.result as AiExtraction;
+  await client.from("documents").update({ ai_status: "done", ai_raw_json: extraction }).eq("id", docRow.id);
+
+  return { documentId: docRow.id, storagePath: firstPath, storagePaths, extraction };
+}

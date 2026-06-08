@@ -15,7 +15,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
-import { uploadAndClassify, PAYMENT_SOURCES } from "@resto/shared";
+import { uploadAndClassifyPages, PAYMENT_SOURCES } from "@resto/shared";
 import type { AiExtraction, Category, PaymentSource, Profile } from "@resto/shared";
 import { supabase } from "./supabaseClient";
 import { DateField } from "./screens/ui";
@@ -95,7 +95,7 @@ async function findOrCreateSupplier(name: string, establishmentId: string): Prom
 export function Capture({ profile }: Props) {
   const [categories, setCategories] = useState<Category[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
-  const [image, setImage] = useState<PickedImage | null>(null);
+  const [pages, setPages] = useState<PickedImage[]>([]);
   const [classifying, setClassifying] = useState(false);
   const [saving, setSaving] = useState(false);
   const [extraction, setExtraction] = useState<AiExtraction | null>(null);
@@ -120,14 +120,33 @@ export function Capture({ profile }: Props) {
   }, [profile.establishment_id]);
 
   function resetAll() {
-    setImage(null);
+    setPages([]);
     setExtraction(null);
     setDocumentId(null);
     setForm(EMPTY_FORM());
     setError(null);
   }
 
-  // --- 1) Acquisition de l'image (caméra ou galerie) ---
+  // Une nouvelle page invalide l'analyse précédente (il faut relancer l'IA).
+  function clearResults() {
+    setExtraction(null);
+    setDocumentId(null);
+    setSuccess(false);
+  }
+
+  // --- 1) Acquisition des pages (caméra / galerie multi / PDF). Chaque ajout
+  //        s'AJOUTE aux pages existantes → un justificatif multi-pages. ---
+  function addImageAssets(assets: ImagePicker.ImagePickerAsset[]) {
+    const next: PickedImage[] = [];
+    for (const a of assets) {
+      if (!a.base64) continue;
+      next.push({ uri: a.uri, bytes: base64ToBytes(a.base64), contentType: a.mimeType ?? "image/jpeg" });
+    }
+    if (!next.length) { setError("Impossible de lire l'image."); return; }
+    clearResults();
+    setPages((prev) => [...prev, ...next]);
+  }
+
   async function pickFromCamera() {
     setError(null);
     const perm = await ImagePicker.requestCameraPermissionsAsync();
@@ -135,28 +154,22 @@ export function Capture({ profile }: Props) {
       setError("Autorise l'accès à la caméra pour photographier une facture.");
       return;
     }
-    handlePicked(
-      await ImagePicker.launchCameraAsync({
-        mediaTypes: ["images"],
-        quality: 0.6,
-        base64: true,
-      }),
-    );
+    const res = await ImagePicker.launchCameraAsync({ mediaTypes: ["images"], quality: 0.6, base64: true });
+    if (res.canceled) return;
+    addImageAssets(res.assets ?? []);
   }
 
   async function pickFromLibrary() {
     setError(null);
-    handlePicked(
-      await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ["images"],
-        quality: 0.6,
-        base64: true,
-      }),
-    );
+    const res = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"], quality: 0.6, base64: true,
+      allowsMultipleSelection: true, selectionLimit: 10,
+    });
+    if (res.canceled) return;
+    addImageAssets(res.assets ?? []);
   }
 
-  // Sélection d'un PDF (facture déjà au format PDF). L'edge function l'envoie à
-  // Claude en bloc « document » — aucune conversion nécessaire côté app.
+  // Sélection d'un PDF (déjà multi-pages côté Claude). On l'ajoute comme une page.
   async function pickPdf() {
     setError(null);
     const res = await DocumentPicker.getDocumentAsync({ type: "application/pdf", copyToCacheDirectory: true, multiple: false });
@@ -164,45 +177,29 @@ export function Capture({ profile }: Props) {
     const asset = res.assets[0];
     try {
       const base64 = await FileSystem.readAsStringAsync(asset.uri, { encoding: FileSystem.EncodingType.Base64 });
-      setExtraction(null);
-      setDocumentId(null);
-      setSuccess(false);
-      setImage({ uri: asset.uri, bytes: base64ToBytes(base64), contentType: "application/pdf", name: asset.name });
+      clearResults();
+      setPages((prev) => [...prev, { uri: asset.uri, bytes: base64ToBytes(base64), contentType: "application/pdf", name: asset.name }]);
     } catch (e: unknown) {
       setError(`Impossible de lire le PDF : ${String((e as Error).message ?? e)}`);
     }
   }
 
-  function handlePicked(res: ImagePicker.ImagePickerResult) {
-    if (res.canceled || !res.assets?.length) return;
-    const asset = res.assets[0];
-    if (!asset.base64) {
-      setError("Impossible de lire l'image.");
-      return;
-    }
-    setExtraction(null);
-    setDocumentId(null);
-    setSuccess(false);
-    setImage({
-      uri: asset.uri,
-      bytes: base64ToBytes(asset.base64),
-      contentType: asset.mimeType ?? "image/jpeg",
-    });
+  function removePage(idx: number) {
+    setPages((prev) => prev.filter((_, i) => i !== idx));
+    clearResults();
   }
 
   // --- 2) Upload + classification IA ---
   async function analyze() {
-    if (!image) return;
+    if (!pages.length) return;
     setClassifying(true);
     setError(null);
     try {
-      const ext = image.contentType === "application/pdf" ? "pdf" : image.contentType === "image/png" ? "png" : "jpg";
-      const res = await uploadAndClassify({
+      const res = await uploadAndClassifyPages({
         client: supabase,
         establishmentId: profile.establishment_id,
-        file: image.bytes,
-        fileName: `facture-${todayISO()}.${ext}`,
-        contentType: image.contentType,
+        pages: pages.map((p) => ({ file: p.bytes, contentType: p.contentType })),
+        fileBaseName: `facture-${todayISO()}`,
         uploadedBy: profile.id,
       });
       setExtraction(res.extraction);
@@ -287,25 +284,31 @@ export function Capture({ profile }: Props) {
 
         {/* Carte capture */}
         <View style={styles.card}>
-          {image ? (
-            image.contentType === "application/pdf" ? (
-              <View style={styles.placeholder}>
-                <Ionicons name="document-text-outline" size={40} color={colors.primary} />
-                <Text style={styles.muted} numberOfLines={1}>{image.name ?? "Document PDF"}</Text>
-              </View>
-            ) : (
-              <Image
-                source={{ uri: image.uri }}
-                style={styles.preview}
-                resizeMode="contain"
-                accessibilityLabel="Aperçu de la facture"
-              />
-            )
-          ) : (
+          {pages.length === 0 ? (
             <View style={styles.placeholder}>
               <Ionicons name="receipt-outline" size={40} color={colors.secondary} />
-              <Text style={styles.muted}>Photo, galerie ou PDF pour démarrer</Text>
+              <Text style={styles.muted}>Photo(s), galerie ou PDF pour démarrer</Text>
+              <Text style={styles.muted}>Plusieurs photos = un seul justificatif multi-pages</Text>
             </View>
+          ) : (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pagesRow}>
+              {pages.map((p, i) => (
+                <View key={`${p.uri}-${i}`} style={styles.thumbWrap}>
+                  {p.contentType === "application/pdf" ? (
+                    <View style={styles.thumbPdf}>
+                      <Ionicons name="document-text-outline" size={26} color={colors.primary} />
+                      <Text style={styles.thumbPdfText} numberOfLines={2}>{p.name ?? "PDF"}</Text>
+                    </View>
+                  ) : (
+                    <Image source={{ uri: p.uri }} style={styles.thumb} resizeMode="cover" accessibilityLabel={`Page ${i + 1}`} />
+                  )}
+                  <Pressable style={styles.thumbRemove} onPress={() => removePage(i)} hitSlop={8} accessibilityRole="button" accessibilityLabel={`Retirer la page ${i + 1}`}>
+                    <Ionicons name="close-circle" size={22} color={colors.danger} />
+                  </Pressable>
+                  <View style={styles.thumbBadge}><Text style={styles.thumbBadgeText}>{i + 1}</Text></View>
+                </View>
+              ))}
+            </ScrollView>
           )}
 
           <View style={styles.row}>
@@ -338,7 +341,7 @@ export function Capture({ profile }: Props) {
             </Pressable>
           </View>
 
-          {image && !extraction && (
+          {pages.length > 0 && !extraction && (
             <Pressable
               style={({ pressed }) => [styles.btn, styles.btnGold, pressed && styles.pressed]}
               onPress={analyze}
@@ -350,7 +353,9 @@ export function Capture({ profile }: Props) {
               ) : (
                 <>
                   <Ionicons name="sparkles" size={18} color={colors.white} />
-                  <Text style={styles.btnPrimaryText}>Analyser avec l'IA</Text>
+                  <Text style={styles.btnPrimaryText}>
+                    Analyser avec l'IA{pages.length > 1 ? ` (${pages.length} pages)` : ""}
+                  </Text>
                 </>
               )}
             </Pressable>
@@ -584,6 +589,21 @@ const styles = StyleSheet.create({
   cardTitle: { ...type.h2, color: colors.text },
 
   preview: { width: "100%", height: 240, borderRadius: radius.md, backgroundColor: colors.surfaceAlt },
+  pagesRow: { gap: space.sm, paddingVertical: 2 },
+  thumbWrap: { width: 110, height: 150 },
+  thumb: { width: 110, height: 150, borderRadius: radius.md, backgroundColor: colors.surfaceAlt },
+  thumbPdf: {
+    width: 110, height: 150, borderRadius: radius.md, backgroundColor: colors.surfaceAlt,
+    alignItems: "center", justifyContent: "center", gap: 4, padding: space.sm,
+    borderWidth: 1, borderColor: colors.border,
+  },
+  thumbPdfText: { ...type.small, color: colors.textMuted, textAlign: "center", fontSize: 11 },
+  thumbRemove: { position: "absolute", top: -6, right: -6, backgroundColor: colors.surface, borderRadius: 11 },
+  thumbBadge: {
+    position: "absolute", bottom: 6, left: 6, minWidth: 22, height: 22, borderRadius: 11,
+    backgroundColor: "rgba(0,0,0,0.55)", alignItems: "center", justifyContent: "center", paddingHorizontal: 6,
+  },
+  thumbBadgeText: { color: colors.white, fontSize: 12, fontWeight: "700" },
   placeholder: {
     width: "100%", height: 180, borderRadius: radius.md, backgroundColor: colors.surfaceAlt,
     alignItems: "center", justifyContent: "center", gap: space.sm,
