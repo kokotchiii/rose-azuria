@@ -221,49 +221,63 @@ export interface AnneeResultat {
 
 export interface CompteResultat3Ans { an1: AnneeResultat; an2: AnneeResultat; an3: AnneeResultat; }
 
-function chargesExternesAnnee(ca: number, indiceAnnee: number, h: Hypotheses): number {
+// `fraction` proratise les charges fixes pour un exercice partiel (ex. 7/12 si
+// ouverture en juin et clôture en décembre). La commission CB reste % du CA réel.
+function chargesExternesAnnee(ca: number, indiceAnnee: number, h: Hypotheses, fraction = 1): number {
   const loyer = h.loyerMensuelHC * 12 * Math.pow(1 + h.indexationLoyer, indiceAnnee);
-  return loyer + h.chargesLocMensuel * 12 + h.assurancePro + h.eauElecGaz + h.comptable
-    + h.telInternet + h.logiciels + h.entretien + h.hommeCleMensuel * 12 + h.commissionCB * ca;
+  const fixes = loyer + h.chargesLocMensuel * 12 + h.assurancePro + h.eauElecGaz + h.comptable
+    + h.telInternet + h.logiciels + h.entretien + h.hommeCleMensuel * 12;
+  return fixes * fraction + h.commissionCB * ca;
 }
 
-/** Construit une année de compte de résultat. */
+/** Construit une année de compte de résultat. `fraction` = part d'année (1 = année pleine). */
 function anneeResultat(ca: number, coutMatierePct: number, indiceAnnee: number, annee: number,
-                       interetsFonds: number, interetsMat: number, annuite: number, h: Hypotheses): AnneeResultat {
+                       interetsFonds: number, interetsMat: number, annuite: number, h: Hypotheses, fraction = 1): AnneeResultat {
   const achats = ca * coutMatierePct;
   const margeBrute = ca - achats;
-  const chargesExternes = chargesExternesAnnee(ca, indiceAnnee, h);
+  const chargesExternes = chargesExternesAnnee(ca, indiceAnnee, h, fraction);
   const valeurAjoutee = margeBrute - chargesExternes;
-  const personnel = coutPersonnel(h, annee);
+  const personnel = coutPersonnel(h, annee) * fraction;
   const ebe = valeurAjoutee - personnel;
-  const dotations = h.materielHT / h.dureeMateriel + h.fraisEtab / h.dureeFrais;
+  const dotations = (h.materielHT / h.dureeMateriel + h.fraisEtab / h.dureeFrais) * fraction;
   const resultatExploitation = ebe - dotations;
-  const chargesFinancieres = interetsFonds + interetsMat;
+  const chargesFinancieres = interetsFonds + interetsMat; // déjà bornés à la bonne période
   const resultatAvantImpot = resultatExploitation - chargesFinancieres;
   const is = impotSocietes(resultatAvantImpot, h);
   const resultatNet = resultatAvantImpot - is;
   const caf = resultatNet + dotations;
+  const annuiteEff = annuite * fraction;
   const chargesFixes = chargesExternes + personnel + dotations + chargesFinancieres;
   const tauxMarge = ca > 0 ? margeBrute / ca : 0;
   const seuilRentabilite = tauxMarge > 0 ? chargesFixes / tauxMarge : 0;
   return {
     ca, achats, margeBrute, tauxMarge, chargesExternes, valeurAjoutee, personnel, ebe,
     dotations, resultatExploitation, chargesFinancieres, resultatAvantImpot, is, resultatNet,
-    caf, annuite, cafMoinsAnnuite: caf - annuite, chargesFixes, seuilRentabilite,
+    caf, annuite: annuiteEff, cafMoinsAnnuite: caf - annuiteEff, chargesFixes, seuilRentabilite,
   };
 }
 
 /**
  * Compte de résultat 3 ans.
  * @param coutMatierePct  coût matière global à appliquer (réel si dispo, sinon moyenne pondérée des hypothèses)
+ * @param fractionAn1     part d'année du 1er exercice (1 = année pleine ; ex. 7/12 si ouverture en juin,
+ *                        clôture en décembre). Les charges fixes/dotations/intérêts de l'An1 sont proratisés,
+ *                        et les exercices suivants décalent d'autant sur l'échéancier d'emprunt.
  */
-export function compteResultat3Ans(projCA: ProjectionCA, coutMatierePct: number, h: Hypotheses): CompteResultat3Ans {
+export function compteResultat3Ans(projCA: ProjectionCA, coutMatierePct: number, h: Hypotheses, fractionAn1 = 1): CompteResultat3Ans {
   const empFonds = tableauEmprunt(h.pretFonds, h.tauxFonds, h.moisFonds);
   const empMat = tableauEmprunt(h.pretMateriel, h.tauxMat, h.moisMat);
   const annuite = empFonds.annuite + empMat.annuite;
-  const mk = (ca: number, idx: number, annee: number) =>
-    anneeResultat(ca, coutMatierePct, idx, annee, empFonds.interetsParAnnee[idx] ?? 0, empMat.interetsParAnnee[idx] ?? 0, annuite, h);
-  return { an1: mk(projCA.an1, 0, 1), an2: mk(projCA.an2, 1, 2), an3: mk(projCA.an3, 2, 3) };
+  const moisAn1 = Math.max(1, Math.round(fractionAn1 * 12));
+  const interetSur = (emp: TableauEmprunt, from: number, count: number) =>
+    emp.echeancier.slice(from, from + count).reduce((s, l) => s + l.interet, 0);
+  const mk = (ca: number, idx: number, annee: number, from: number, count: number, fraction: number) =>
+    anneeResultat(ca, coutMatierePct, idx, annee, interetSur(empFonds, from, count), interetSur(empMat, from, count), annuite, h, fraction);
+  return {
+    an1: mk(projCA.an1, 0, 1, 0, moisAn1, fractionAn1),
+    an2: mk(projCA.an2, 1, 2, moisAn1, 12, 1),
+    an3: mk(projCA.an3, 2, 3, moisAn1 + 12, 12, 1),
+  };
 }
 
 /** Coût matière "hypothèse" pondéré par la structure de CA d'un service. */

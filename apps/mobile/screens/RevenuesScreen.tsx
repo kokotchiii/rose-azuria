@@ -244,8 +244,6 @@ function StatsView({
         Appliqué aux recettes sans taux précis pour estimer le HT. Tu peux fixer un taux par recette à la saisie.
       </Text>
 
-      <ProjectionsCard items={items} amount={amount} basis="ht" cfg={cfg} />
-
       <ScheduleEditor
         schedule={schedule}
         openingDate={openingDate}
@@ -303,92 +301,6 @@ function ScheduleEditor({
         )}
       </Card>
     </>
-  );
-}
-
-// ---------- Carte Projections + objectif ----------
-function ProjectionsCard({ items, amount, basis, cfg }: { items: RevenueRow[]; amount: AmountFn; basis: Basis; cfg: ScheduleCfg }) {
-  const [horizon, setHorizon] = useState<Horizon>("month");
-  const [growth, setGrowth] = useState(10);
-
-  useEffect(() => { getGrowthTarget().then(setGrowth); }, []);
-  function changeGrowth(delta: number) {
-    setGrowth((g) => {
-      const next = Math.max(-50, Math.min(200, g + delta));
-      setGrowthTarget(next);
-      return next;
-    });
-  }
-
-  const p = useMemo(() => project(items, horizon, growth, amount, cfg), [items, horizon, growth, amount, cfg]);
-
-  const hLabel = HORIZONS.find((h) => h.key === horizon)?.label.toLowerCase() ?? "";
-  const onTrack = p.objective <= 0 ? null : p.projected >= p.objective;
-  const gapPct = p.objective > 0 ? Math.round(((p.projected - p.objective) / p.objective) * 100) : 0;
-  // Échelle commune pour les deux barres (réalisé/projection vs objectif).
-  const scale = Math.max(p.projected, p.objective, p.actual, 1);
-
-  return (
-    <>
-      <SectionTitle>Projection du chiffre d'affaires ({basis === "ht" ? "HT" : "TTC"})</SectionTitle>
-      <Segmented<Horizon> options={HORIZONS} value={horizon} onChange={setHorizon} />
-
-      <Card>
-        {/* Objectif de croissance */}
-        <View style={styles.objRow}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.label}>Objectif de croissance</Text>
-            <Text style={styles.muted}>vs {hLabel} précédent{p.prev > 0 ? ` (${fmtEUR(p.prev)})` : ""}</Text>
-          </View>
-          <View style={styles.stepper}>
-            <Pressable style={styles.stepBtn} onPress={() => changeGrowth(-5)} accessibilityRole="button" accessibilityLabel="Diminuer l'objectif">
-              <Ionicons name="remove" size={20} color={colors.text} />
-            </Pressable>
-            <Text style={styles.stepVal}>{growth > 0 ? "+" : ""}{growth}%</Text>
-            <Pressable style={styles.stepBtn} onPress={() => changeGrowth(5)} accessibilityRole="button" accessibilityLabel="Augmenter l'objectif">
-              <Ionicons name="add" size={20} color={colors.text} />
-            </Pressable>
-          </View>
-        </View>
-
-        <View style={styles.sep} />
-
-        <Text style={styles.muted}>
-          {p.elapsed} services réalisés / {p.total} prévus · réalisé {fmtEUR(p.actual)}
-        </Text>
-
-        <ProjBar label="Projection fin de période" value={p.projected} scale={scale} color={colors.primary} />
-        <ProjBar label={`Objectif (${growth > 0 ? "+" : ""}${growth}%)`} value={p.objective} scale={scale} color={colors.gold} />
-
-        {onTrack !== null && (
-          <View style={[styles.badge, { backgroundColor: onTrack ? colors.successBg : colors.dangerBg }]}>
-            <Ionicons name={onTrack ? "trending-up" : "trending-down"} size={16} color={onTrack ? colors.success : colors.danger} />
-            <Text style={[styles.badgeText, { color: onTrack ? colors.success : colors.danger }]}>
-              {onTrack
-                ? `En avance sur l'objectif (+${gapPct}% projeté)`
-                : `En retard sur l'objectif (${gapPct}% projeté)`}
-            </Text>
-          </View>
-        )}
-        {p.prev <= 0 && (
-          <Text style={styles.muted}>Pas d'historique sur le {hLabel} précédent : l'objectif s'affinera avec le temps.</Text>
-        )}
-      </Card>
-    </>
-  );
-}
-
-function ProjBar({ label, value, scale, color }: { label: string; value: number; scale: number; color: string }) {
-  return (
-    <View style={{ gap: 4, marginTop: space.sm }}>
-      <View style={styles.barHead}>
-        <Text style={styles.barLabel}>{label}</Text>
-        <Text style={styles.barVal}>{fmtEUR(value)}</Text>
-      </View>
-      <View style={styles.barTrack}>
-        <View style={[styles.barFill, { width: `${Math.max(2, (value / scale) * 100)}%`, backgroundColor: color }]} />
-      </View>
-    </View>
   );
 }
 
