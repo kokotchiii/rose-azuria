@@ -11,6 +11,7 @@ import { ExpensesScreen } from "./screens/ExpensesScreen";
 import { SuppliersScreen } from "./screens/SuppliersScreen";
 import { ProductsScreen } from "./screens/ProductsScreen";
 import { RevenuesScreen } from "./screens/RevenuesScreen";
+import { PrevisionnelScreen } from "./screens/PrevisionnelScreen";
 import { TodosScreen } from "./screens/TodosScreen";
 import { PlannedScreen } from "./screens/PlannedScreen";
 import { ExportScreen } from "./screens/ExportScreen";
@@ -19,7 +20,7 @@ import { EventsScreen } from "./screens/EventsScreen";
 import { BrandLogo, Screen as ScreenScroll } from "./screens/ui";
 
 type Tab = "capture" | "expenses" | "dashboard" | "more";
-type SubKey = "reimbursements" | "events" | "revenues" | "planned" | "suppliers" | "products" | "todos" | "export";
+type SubKey = "reimbursements" | "events" | "revenues" | "previsionnel" | "planned" | "suppliers" | "products" | "todos" | "export";
 
 const TABS: { key: Tab; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { key: "capture", label: "Capturer", icon: "camera" },
@@ -32,6 +33,7 @@ const SUBS: { key: SubKey; label: string; icon: keyof typeof Ionicons.glyphMap }
   { key: "reimbursements", label: "Notes de frais", icon: "wallet-outline" },
   { key: "events", label: "Événements", icon: "sparkles-outline" },
   { key: "revenues", label: "Recettes", icon: "cash-outline" },
+  { key: "previsionnel", label: "Prévisionnel", icon: "trending-up-outline" },
   { key: "planned", label: "À prévoir", icon: "construct-outline" },
   { key: "suppliers", label: "Fournisseurs", icon: "storefront-outline" },
   { key: "products", label: "Produits récurrents", icon: "cart-outline" },
@@ -47,6 +49,7 @@ const TITLES: Record<Tab | SubKey, string> = {
   reimbursements: "Notes de frais",
   events: "Événements",
   revenues: "Recettes",
+  previsionnel: "Prévisionnel",
   planned: "À prévoir",
   suppliers: "Fournisseurs",
   products: "Produits récurrents",
@@ -69,6 +72,7 @@ export function Home({ profile }: { profile: Profile }) {
     if (sub === "reimbursements") return <ReimbursementsScreen />;
     if (sub === "events") return <EventsScreen profile={profile} />;
     if (sub === "revenues") return <RevenuesScreen profile={profile} />;
+    if (sub === "previsionnel") return <PrevisionnelScreen />;
     if (sub === "planned") return <PlannedScreen profile={profile} />;
     if (sub === "suppliers") return <SuppliersScreen />;
     if (sub === "products") return <ProductsScreen />;

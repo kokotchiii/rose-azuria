@@ -13,6 +13,7 @@
     "@expo-google-fonts/karla": "^0.4.2",
     "@expo-google-fonts/playfair-display": "^0.4.2",
     "@react-native-async-storage/async-storage": "2.2.0",
+    "@resto/previsionnel": "workspace:*",
     "@resto/shared": "workspace:*",
     "@supabase/supabase-js": "^2.45.4",
     "expo": "~54.0.35",
