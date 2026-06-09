@@ -18,6 +18,13 @@ function payerLabel(e: ExpenseListItem): string {
   return e.payer?.full_name ?? "Société";
 }
 
+const MONTHS = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
+// "2026-06" → "juin 2026"
+function monthLabel(ym: string): string {
+  const [y, m] = ym.split("-");
+  return `${MONTHS[Number(m) - 1] ?? m} ${y}`;
+}
+
 export function ExpensesScreen() {
   const [items, setItems] = useState<ExpenseListItem[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
@@ -27,25 +34,45 @@ export function ExpensesScreen() {
   const [editing, setEditing] = useState<ExpenseListItem | null>(null);
   const [saving, setSaving] = useState(false);
 
-  // Tri & filtre par type (catégorie).
+  // Tri & filtres (type / fournisseur).
   const [sortBy, setSortBy] = useState<"date" | "amount">("date");
   const [catFilter, setCatFilter] = useState<string | null>(null); // null = toutes
+  const [supFilter, setSupFilter] = useState<string | null>(null); // null = tous
 
-  // Catégories réellement présentes dans les dépenses (pour le filtre).
+  // Catégories / fournisseurs réellement présents dans les dépenses (pour les filtres).
   const categories = useMemo(() => {
     const set = new Set<string>();
     for (const e of items) if (e.category?.label) set.add(e.category.label);
     return [...set].sort((a, b) => a.localeCompare(b));
   }, [items]);
+  const suppliers = useMemo(() => {
+    const set = new Set<string>();
+    for (const e of items) if (e.supplier?.name) set.add(e.supplier.name);
+    return [...set].sort((a, b) => a.localeCompare(b));
+  }, [items]);
 
-  // Liste affichée : filtrée par type puis triée.
+  // Liste affichée : filtrée (type + fournisseur) puis triée.
   const visible = useMemo(() => {
-    const filtered = catFilter ? items.filter((e) => e.category?.label === catFilter) : items;
+    let filtered = items;
+    if (catFilter) filtered = filtered.filter((e) => e.category?.label === catFilter);
+    if (supFilter) filtered = filtered.filter((e) => e.supplier?.name === supFilter);
     const arr = [...filtered];
     if (sortBy === "amount") arr.sort((a, b) => Number(b.amount_ttc) - Number(a.amount_ttc));
     else arr.sort((a, b) => (a.expense_date < b.expense_date ? 1 : -1));
     return arr;
-  }, [items, catFilter, sortBy]);
+  }, [items, catFilter, supFilter, sortBy]);
+
+  // Regroupement par mois (uniquement en tri par date) → navigation « par date ».
+  const sections = useMemo(() => {
+    const out: { key: string; rows: ExpenseListItem[] }[] = [];
+    for (const e of visible) {
+      const key = e.expense_date.slice(0, 7);
+      const g = out.find((x) => x.key === key);
+      if (g) g.rows.push(e);
+      else out.push({ key, rows: [e] });
+    }
+    return out;
+  }, [visible]);
 
   useEffect(() => {
     Promise.all([fetchExpenses(), fetchMembers()])
@@ -105,6 +132,34 @@ export function ExpensesScreen() {
   if (loading) return <Loading />;
   if (!items.length) return <Screen><Empty icon="receipt-outline" text="Aucune dépense enregistrée." /></Screen>;
 
+  const renderCard = (e: ExpenseListItem) => (
+    <Pressable
+      key={e.id}
+      onPress={() => setEditing(e)}
+      accessibilityRole="button"
+      accessibilityLabel={`Dépense ${e.supplier?.name ?? ""} — modifier`}
+      style={({ pressed }) => pressed && { opacity: 0.9 }}
+    >
+      <Card>
+        <View style={styles.row}>
+          <Text style={styles.supplier} numberOfLines={1}>{e.supplier?.name ?? "Sans fournisseur"}</Text>
+          <Text style={styles.amount}>{fmtEUR(Number(e.amount_ttc))}</Text>
+        </View>
+        <View style={styles.row}>
+          <Text style={styles.meta}>{fmtDate(e.expense_date)} · {e.category?.label ?? "—"}</Text>
+          {e.reimbursable && !e.reimbursed && <Text style={styles.tag}>à rembourser</Text>}
+          {e.reimbursable && e.reimbursed && <Text style={styles.tagDone}>remboursé</Text>}
+        </View>
+        <View style={styles.payerRow}>
+          <Ionicons name="person-circle-outline" size={16} color={colors.textMuted} />
+          <Text style={styles.payer}>Payé par {payerLabel(e)}</Text>
+          <Ionicons name="chevron-forward" size={16} color={colors.secondary} style={{ marginLeft: "auto" }} />
+        </View>
+        {e.note ? <Text style={styles.note} numberOfLines={2}>{e.note}</Text> : null}
+      </Card>
+    </Pressable>
+  );
+
   return (
     <Screen>
       {/* Tri */}
@@ -114,7 +169,7 @@ export function ExpensesScreen() {
         onChange={setSortBy}
       />
 
-      {/* Filtre par catégorie (menu déroulant) */}
+      {/* Filtre par catégorie */}
       {categories.length > 0 && (
         <Select<string>
           value={catFilter ?? "__all__"}
@@ -123,37 +178,28 @@ export function ExpensesScreen() {
         />
       )}
 
+      {/* Filtre par fournisseur */}
+      {suppliers.length > 0 && (
+        <Select<string>
+          value={supFilter ?? "__all__"}
+          options={[{ key: "__all__", label: "Tous les fournisseurs" }, ...suppliers.map((s) => ({ key: s, label: s }))]}
+          onChange={(k) => setSupFilter(k === "__all__" ? null : k)}
+        />
+      )}
+
       {visible.length === 0 ? (
         <Empty icon="filter-outline" text="Aucune dépense pour ce filtre." />
       ) : null}
 
-      {visible.map((e) => (
-        <Pressable
-          key={e.id}
-          onPress={() => setEditing(e)}
-          accessibilityRole="button"
-          accessibilityLabel={`Dépense ${e.supplier?.name ?? ""} — modifier qui a payé`}
-          style={({ pressed }) => pressed && { opacity: 0.9 }}
-        >
-          <Card>
-            <View style={styles.row}>
-              <Text style={styles.supplier} numberOfLines={1}>{e.supplier?.name ?? "Sans fournisseur"}</Text>
-              <Text style={styles.amount}>{fmtEUR(Number(e.amount_ttc))}</Text>
+      {/* Tri par date → regroupé par mois ; tri par montant → liste à plat. */}
+      {sortBy === "date"
+        ? sections.map((sec) => (
+            <View key={sec.key} style={{ gap: space.sm }}>
+              <Text style={styles.monthHead}>{monthLabel(sec.key)}</Text>
+              {sec.rows.map(renderCard)}
             </View>
-            <View style={styles.row}>
-              <Text style={styles.meta}>{fmtDate(e.expense_date)} · {e.category?.label ?? "—"}</Text>
-              {e.reimbursable && !e.reimbursed && <Text style={styles.tag}>à rembourser</Text>}
-              {e.reimbursable && e.reimbursed && <Text style={styles.tagDone}>remboursé</Text>}
-            </View>
-            <View style={styles.payerRow}>
-              <Ionicons name="person-circle-outline" size={16} color={colors.textMuted} />
-              <Text style={styles.payer}>Payé par {payerLabel(e)}</Text>
-              <Ionicons name="chevron-forward" size={16} color={colors.secondary} style={{ marginLeft: "auto" }} />
-            </View>
-            {e.note ? <Text style={styles.note} numberOfLines={2}>{e.note}</Text> : null}
-          </Card>
-        </Pressable>
-      ))}
+          ))
+        : visible.map(renderCard)}
 
       {/* Modale : changer qui a payé */}
       <Modal visible={editing !== null} transparent animationType="fade" onRequestClose={() => setEditing(null)}>
@@ -242,6 +288,7 @@ export function ExpensesScreen() {
 const styles = StyleSheet.create({
   sortRow: { flexDirection: "row", gap: space.sm },
   filterRow: { gap: space.sm, paddingVertical: 2 },
+  monthHead: { ...type.label, color: colors.textMuted, marginTop: space.sm, textTransform: "capitalize" },
   row: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: space.sm },
   supplier: { ...type.title, color: colors.text, flex: 1 },
   amount: { ...type.title, color: colors.primary },
