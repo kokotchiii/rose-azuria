@@ -120,18 +120,22 @@ Réponds UNIQUEMENT par un objet JSON valide (pas de texte avant ou après, pas 
 
 IMPORTANT — le restaurant qui REÇOIT la facture est le CLIENT (destinataire). Tu extrais toujours les infos du FOURNISSEUR (émetteur du document), jamais celles du restaurant client.
 
+ORIENTATION : le document peut être photographié DE TRAVERS ou PIVOTÉ (90°, 180°, texte couché sur le côté). Pivote mentalement l'image autant que nécessaire et lis-la quelle que soit son orientation. Ne renvoie pas null sous prétexte que l'image est tournée.
+
+PLUSIEURS IMAGES = UN SEUL DOCUMENT : si on te fournit plusieurs images/pages, ce sont les pages d'UNE SEULE facture (recto/verso, page 1/2 et 2/2…). Lis TOUTES les pages et CONSOLIDE en un seul résultat.
+
 Règles d'ANCRAGE des champs (c'est ICI que se produisent les erreurs — lis très attentivement) :
-- "supplier_name" : raison sociale de l'ÉMETTEUR (en-tête, en haut, près du logo). JAMAIS le restaurant destinataire, JAMAIS "Azuria".
+- "supplier_name" : raison sociale de l'ÉMETTEUR (en-tête, en haut, près du logo). JAMAIS le restaurant destinataire, JAMAIS "Azuria" / "SSM REST" / "ROSE" (= le client).
 - "supplier_siret" : SIRET à 14 chiffres du fournisseur. PAS le SIREN (9 chiffres), PAS le n° de TVA intracommunautaire, PAS un code client.
-- "document_date" : date d'ÉMISSION de la facture. PAS la date d'échéance, PAS la date de livraison (sauf si c'est un bon de livraison).
-- "invoice_number" : n° de FACTURE du fournisseur (libellé "Facture n°", "N° facture", "Invoice"). PAS un n° de commande, de bon de livraison, de client, ni un n° de TVA.
-- "amount_ttc" : le total FINAL à payer ("Total TTC", "Net à payer", "Montant dû", "Total à régler"), en général en bas / dernière page. JAMAIS un sous-total, un montant de ligne, ni le total HT.
-- "amount_ht" : total hors taxes. "amount_tva" : montant total de TVA (somme si plusieurs taux).
+- "document_date" : date d'ÉMISSION ("Date facture"). PAS la date d'échéance, PAS la date de livraison (sauf si c'est un bon de livraison).
+- "invoice_number" : n° de FACTURE du fournisseur ("Facture n°", "N° FACTURE", "Invoice"). PAS un n° de commande, de bon de livraison, de client, ni un n° de TVA.
+- "amount_ttc" : le total FINAL à payer. Cherche, dans l'ordre : "MONTANT DE LA FACTURE", "NET À PAYER", "Total TTC", "Montant dû", "Total à régler". Sur les bons de livraison / factures Sysco, Metro, Promocash, ce total est souvent sur le PAPILLON DÉTACHABLE (colonne "MONTANT DE LA FACTURE") ou en dernière page. JAMAIS un sous-total de page, un montant de ligne, ni le total HT.
+- "amount_ht" : total hors taxes ("TOTAL H.T."). Sur un document multi-pages, additionne les "TOTAL H.T." de chaque page si chacune a le sien. "amount_tva" : montant total de TVA (somme si plusieurs taux).
 - "tva_rate" : taux principal en % (ex 5.5, 10, 20) ; si plusieurs taux, le taux dominant.
 
 Règles strictes :
 - Si une valeur est illisible ou absente : null (NE JAMAIS inventer).
-- Si le document a PLUSIEURS PAGES : lis et accumule les items de TOUTES les pages (les factures Metro/Promocash listent souvent les articles sur 2-5 pages). Le total TTC se trouve souvent en dernière page : c'est lui qui fait foi.
+- Si le document a PLUSIEURS PAGES : lis et accumule les items de TOUTES les pages (les factures Sysco/Metro/Promocash listent souvent les articles sur 2-5 pages, avec un sous-total par page). Le montant à payer (MONTANT DE LA FACTURE / NET À PAYER) fait foi pour amount_ttc.
 - "suggested_category" DOIT appartenir EXACTEMENT à cette liste : ${JSON.stringify(categories)}.
 - "confidence" est un nombre entre 0 et 1 reflétant ta certitude globale.
 - Les montants sont en euros, en number (pas de string avec "€").
