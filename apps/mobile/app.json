@@ -12,7 +12,11 @@
       "bundleIdentifier": "com.azuria.rose"
     },
     "android": {
-      "package": "com.azuria.rose"
+      "package": "com.azuria.rose",
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.CAMERA"
+      ]
     },
     "plugins": [
       [
@@ -33,6 +37,12 @@
           "cameraPermission": "Pour scanner vos factures."
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "74e50f5c-dab9-4882-8c15-2c17b8c3342e"
+      }
+    },
+    "owner": "1313nrv"
   }
 }
