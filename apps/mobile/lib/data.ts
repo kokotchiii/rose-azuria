@@ -558,3 +558,66 @@ export async function fetchAiCostThisMonth(): Promise<{ total: number; count: nu
   const rows = (data ?? []) as Array<{ cost_usd: number }>;
   return { total: rows.reduce((s, r) => s + Number(r.cost_usd ?? 0), 0), count: rows.length };
 }
+
+// ---------- Justificatif (document) d'une dépense ----------
+// Le bucket "documents" est privé → on génère une URL signée temporaire (1 h).
+export async function getDocumentSignedUrl(
+  documentId: string,
+): Promise<{ url: string; type: string | null } | null> {
+  const { data: doc } = await supabase
+    .from("documents")
+    .select("storage_path, file_type")
+    .eq("id", documentId)
+    .maybeSingle();
+  const d = doc as { storage_path?: string; file_type?: string | null } | null;
+  if (!d?.storage_path) return null;
+  const { data, error } = await supabase.storage.from("documents").createSignedUrl(d.storage_path, 3600);
+  if (error || !data?.signedUrl) return null;
+  return { url: data.signedUrl, type: d.file_type ?? null };
+}
+
+// ---------- Rapprochement de fournisseurs (doublons) ----------
+// Normalise un nom pour repérer les doublons : minuscules, sans accents, sans
+// forme juridique (EURL/SARL/SAS…), sans ponctuation. "EURL Sud Primeurs" et
+// "Sud Primeurs" donnent la même clé.
+export function normalizeSupplierName(name: string): string {
+  return (name ?? "")
+    .toLowerCase()
+    .normalize("NFD").replace(/[̀-ͯ]/g, "")
+    .replace(/\b(eurl|sarl|sasu|sas|sa|sci|eirl|ets|ets\.|etablissement|etablissements|snc|scop|scea|gaec|earl)\b/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+export interface SupplierDupGroup {
+  key: string;
+  members: SupplierStats[]; // ≥ 2 fournisseurs au même nom normalisé
+}
+
+// Groupe les fournisseurs qui semblent être le même (nom normalisé identique).
+export function findSupplierDuplicates(suppliers: SupplierStats[]): SupplierDupGroup[] {
+  const map = new Map<string, SupplierStats[]>();
+  for (const s of suppliers) {
+    const key = normalizeSupplierName(s.supplier.name);
+    if (!key) continue;
+    const arr = map.get(key) ?? [];
+    arr.push(s);
+    map.set(key, arr);
+  }
+  return [...map.entries()]
+    .filter(([, arr]) => arr.length > 1)
+    .map(([key, members]) => ({ key, members }));
+}
+
+// Fusionne des fournisseurs : réaffecte leurs dépenses vers `keepId` puis supprime
+// les doublons. (expenses.supplier_id → on delete set null, mais on réaffecte avant.)
+export async function mergeSuppliers(keepId: string, dropIds: string[]): Promise<void> {
+  for (const dropId of dropIds) {
+    if (dropId === keepId) continue;
+    const { error: e1 } = await supabase.from("expenses").update({ supplier_id: keepId }).eq("supplier_id", dropId);
+    if (e1) throw e1;
+    const { error: e2 } = await supabase.from("suppliers").delete().eq("id", dropId);
+    if (e2) throw e2;
+  }
+}

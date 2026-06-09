@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Linking, Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import {
   fetchExpenses,
   fetchMembers,
+  getDocumentSignedUrl,
   setExpenseReimbursed,
   updateExpensePayer,
   type ExpenseListItem,
@@ -33,6 +34,24 @@ export function ExpensesScreen() {
   // Dépense en cours d'édition du payeur (null = modale fermée).
   const [editing, setEditing] = useState<ExpenseListItem | null>(null);
   const [saving, setSaving] = useState(false);
+  const [docBusy, setDocBusy] = useState(false);
+  const [docErr, setDocErr] = useState<string | null>(null);
+
+  // Ouvre le justificatif (PDF/image) stocké via une URL signée temporaire.
+  async function openDocument(e: ExpenseListItem) {
+    if (!e.document_id) return;
+    setDocBusy(true);
+    setDocErr(null);
+    try {
+      const res = await getDocumentSignedUrl(e.document_id);
+      if (res?.url) await Linking.openURL(res.url);
+      else setDocErr("Justificatif introuvable.");
+    } catch {
+      setDocErr("Impossible d'ouvrir le justificatif.");
+    } finally {
+      setDocBusy(false);
+    }
+  }
 
   // Tri & filtres (type / fournisseur).
   const [sortBy, setSortBy] = useState<"date" | "amount">("date");
@@ -268,6 +287,27 @@ export function ExpensesScreen() {
               </View>
             )}
 
+            {/* Justificatif (PDF/photo scannée) */}
+            <View style={styles.sep} />
+            <Pressable
+              style={({ pressed }) => [styles.docBtn, pressed && { opacity: 0.85 }]}
+              onPress={() => editing && openDocument(editing)}
+              disabled={docBusy || !editing?.document_id}
+              accessibilityRole="button"
+            >
+              {docBusy ? (
+                <ActivityIndicator color={colors.primary} />
+              ) : (
+                <>
+                  <Ionicons name="document-attach-outline" size={18} color={editing?.document_id ? colors.primary : colors.textMuted} />
+                  <Text style={[styles.docBtnText, { color: editing?.document_id ? colors.primary : colors.textMuted }]}>
+                    {editing?.document_id ? "Voir le justificatif" : "Aucun justificatif joint"}
+                  </Text>
+                </>
+              )}
+            </Pressable>
+            {docErr && <Text style={styles.docErrText}>{docErr}</Text>}
+
             {saving && (
               <View style={styles.savingRow}>
                 <ActivityIndicator color={colors.primary} />
@@ -316,6 +356,9 @@ const styles = StyleSheet.create({
   reimbBtnText: { ...type.title },
   reimbDone: { backgroundColor: colors.success },
   reimbUndo: { backgroundColor: colors.dangerBg, borderWidth: 1, borderColor: colors.danger },
+  docBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: space.sm, minHeight: 44, borderRadius: radius.md, backgroundColor: colors.chipBg, borderWidth: 1, borderColor: colors.border },
+  docBtnText: { ...type.title },
+  docErrText: { ...type.small, color: colors.danger, textAlign: "center" },
   savingRow: { flexDirection: "row", alignItems: "center", gap: space.sm },
   savingText: { ...type.small, color: colors.textMuted },
   cancelBtn: { minHeight: 44, alignItems: "center", justifyContent: "center", marginTop: space.xs },

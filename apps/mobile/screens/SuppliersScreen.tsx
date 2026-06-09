@@ -1,7 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { fetchExpenses, fetchSuppliersWithStats, type ExpenseListItem, type SupplierStats } from "../lib/data";
+import {
+  fetchExpenses,
+  fetchSuppliersWithStats,
+  findSupplierDuplicates,
+  mergeSuppliers,
+  type ExpenseListItem,
+  type SupplierDupGroup,
+  type SupplierStats,
+} from "../lib/data";
 import { fmtDate, fmtEUR } from "../lib/format";
 import { colors, radius, space, type } from "../theme";
 import { Card, Empty, Loading, Screen } from "./ui";
@@ -17,13 +25,35 @@ export function SuppliersScreen() {
   const [expenses, setExpenses] = useState<ExpenseListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<SupplierStats | null>(null);
+  const [merging, setMerging] = useState<SupplierDupGroup | null>(null); // groupe en cours de fusion
+  const [mergeBusy, setMergeBusy] = useState(false);
 
-  useEffect(() => {
+  const load = useCallback(() => {
+    setLoading(true);
     Promise.all([fetchSuppliersWithStats(), fetchExpenses()])
       .then(([sup, exp]) => { setItems(sup); setExpenses(exp); })
       .catch(() => { setItems([]); setExpenses([]); })
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(load, [load]);
+
+  // Doublons probables (même nom normalisé : "EURL Sud Primeurs" = "Sud Primeurs").
+  const dups = useMemo(() => findSupplierDuplicates(items), [items]);
+
+  // Fusionne en gardant `keep`, en réaffectant les dépenses des autres.
+  async function doMerge(group: SupplierDupGroup, keep: SupplierStats) {
+    setMergeBusy(true);
+    try {
+      await mergeSuppliers(keep.supplier.id, group.members.filter((m) => m.supplier.id !== keep.supplier.id).map((m) => m.supplier.id));
+      setMerging(null);
+      load();
+    } catch {
+      // on laisse la modale ouverte pour réessayer
+    } finally {
+      setMergeBusy(false);
+    }
+  }
 
   if (loading) return <Loading />;
 
@@ -86,6 +116,23 @@ export function SuppliersScreen() {
 
   return (
     <Screen>
+      {dups.length > 0 && (
+        <Card style={styles.dupCard}>
+          <View style={styles.dupHead}>
+            <Ionicons name="git-merge-outline" size={18} color={colors.gold} />
+            <Text style={styles.dupTitle}>{dups.length} doublon{dups.length > 1 ? "s" : ""} possible{dups.length > 1 ? "s" : ""}</Text>
+          </View>
+          {dups.map((g) => (
+            <View key={g.key} style={styles.dupRow}>
+              <Text style={styles.dupNames} numberOfLines={2}>{g.members.map((m) => m.supplier.name).join("  ·  ")}</Text>
+              <Pressable style={({ pressed }) => [styles.dupBtn, pressed && { opacity: 0.85 }]} onPress={() => setMerging(g)} accessibilityRole="button">
+                <Text style={styles.dupBtnText}>Fusionner</Text>
+              </Pressable>
+            </View>
+          ))}
+        </Card>
+      )}
+
       {items.map((s) => (
         <Pressable
           key={s.supplier.id}
@@ -108,6 +155,38 @@ export function SuppliersScreen() {
           </Card>
         </Pressable>
       ))}
+
+      {/* Modale fusion : choisir le nom à conserver */}
+      <Modal visible={merging !== null} transparent animationType="fade" onRequestClose={() => !mergeBusy && setMerging(null)}>
+        <Pressable style={styles.backdrop} onPress={() => !mergeBusy && setMerging(null)}>
+          <Pressable style={styles.sheet} onPress={() => {}}>
+            <Text style={styles.sheetTitle}>Fusionner les fournisseurs</Text>
+            <Text style={styles.sheetSub}>Choisis le nom à conserver : les dépenses des autres y seront rattachées, puis les doublons supprimés.</Text>
+            {merging?.members.map((m) => (
+              <Pressable
+                key={m.supplier.id}
+                style={({ pressed }) => [styles.keepRow, pressed && { opacity: 0.85 }]}
+                onPress={() => merging && !mergeBusy && doMerge(merging, m)}
+                disabled={mergeBusy}
+                accessibilityRole="button"
+                accessibilityLabel={`Garder ${m.supplier.name}`}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.keepName} numberOfLines={1}>{m.supplier.name}</Text>
+                  <Text style={styles.keepMeta}>{m.invoice_count} facture{m.invoice_count > 1 ? "s" : ""} · {fmtEUR(m.total_amount)}</Text>
+                </View>
+                <Ionicons name="checkmark-circle-outline" size={22} color={colors.primary} />
+              </Pressable>
+            ))}
+            {mergeBusy && (
+              <View style={styles.mergeBusyRow}><ActivityIndicator color={colors.primary} /><Text style={styles.keepMeta}>Fusion en cours…</Text></View>
+            )}
+            <Pressable style={styles.cancelBtn} onPress={() => !mergeBusy && setMerging(null)} accessibilityRole="button">
+              <Text style={styles.cancelText}>Annuler</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </Screen>
   );
 }
@@ -121,4 +200,23 @@ const styles = StyleSheet.create({
   backText: { ...type.title, color: colors.primary },
   monthHead: { ...type.label, color: colors.textMuted, marginTop: space.sm, textTransform: "capitalize" },
   lineDate: { ...type.title, color: colors.text },
+
+  dupCard: { backgroundColor: "#FEF3C7", borderWidth: 1, borderColor: colors.gold, gap: space.sm },
+  dupHead: { flexDirection: "row", alignItems: "center", gap: space.sm },
+  dupTitle: { ...type.title, color: colors.gold },
+  dupRow: { flexDirection: "row", alignItems: "center", gap: space.sm },
+  dupNames: { ...type.small, color: colors.text, flex: 1 },
+  dupBtn: { backgroundColor: colors.gold, borderRadius: radius.pill, paddingHorizontal: space.md, paddingVertical: 8 },
+  dupBtnText: { ...type.small, color: colors.white, fontWeight: "700" },
+
+  backdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "flex-end" },
+  sheet: { backgroundColor: colors.surface, borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, padding: space.xl, gap: space.sm },
+  sheetTitle: { ...type.h2, color: colors.text },
+  sheetSub: { ...type.small, color: colors.textMuted },
+  keepRow: { flexDirection: "row", alignItems: "center", gap: space.sm, padding: space.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
+  keepName: { ...type.title, color: colors.text },
+  keepMeta: { ...type.small, color: colors.textMuted },
+  mergeBusyRow: { flexDirection: "row", alignItems: "center", gap: space.sm },
+  cancelBtn: { minHeight: 44, alignItems: "center", justifyContent: "center", marginTop: space.xs },
+  cancelText: { ...type.title, color: colors.textMuted },
 });
