@@ -15,7 +15,9 @@ import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
-import { uploadAndClassifyPages, PAYMENT_SOURCES } from "@resto/shared";
+import * as Print from "expo-print";
+import * as Sharing from "expo-sharing";
+import { uploadAndClassify, uploadAndClassifyPages, PAYMENT_SOURCES } from "@resto/shared";
 import type { AiExtraction, Category, PaymentSource, Profile } from "@resto/shared";
 import { supabase } from "./supabaseClient";
 import { DateField } from "./screens/ui";
@@ -29,7 +31,8 @@ interface PickedImage {
   uri: string;
   bytes: Uint8Array;
   contentType: string;
-  name?: string; // nom de fichier (affiché pour un PDF, non prévisualisable en image)
+  base64?: string; // gardé pour générer le PDF (embed dans le HTML de rendu)
+  name?: string;   // nom de fichier (affiché pour un PDF, non prévisualisable en image)
 }
 
 // Sentinel : "c'est la société (Azuria) qui paie" → payer_id = null en base.
@@ -72,6 +75,32 @@ function base64ToBytes(base64: string): Uint8Array {
   return bytes;
 }
 
+function bytesToBase64(bytes: Uint8Array): string {
+  let bin = "";
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return globalThis.btoa(bin);
+}
+
+// Génère un PDF (une page A4 par image) façon document scanné, et renvoie ses octets.
+async function buildScanPdf(imgPages: PickedImage[]): Promise<{ uri: string; bytes: Uint8Array }> {
+  const body = imgPages
+    .map((p) => {
+      const b64 = p.base64 ?? bytesToBase64(p.bytes);
+      return `<div class="pg"><img src="data:${p.contentType || "image/jpeg"};base64,${b64}"/></div>`;
+    })
+    .join("");
+  const html = `<!doctype html><html><head><meta charset="utf-8"/><style>
+    @page { margin: 16px; }
+    html, body { margin: 0; padding: 0; background: #fff; }
+    .pg { page-break-after: always; display: flex; align-items: center; justify-content: center; min-height: 1040px; }
+    .pg:last-child { page-break-after: auto; }
+    img { max-width: 100%; max-height: 1040px; object-fit: contain; filter: contrast(1.06) saturate(0.92); }
+  </style></head><body>${body}</body></html>`;
+  const { uri } = await Print.printToFileAsync({ html });
+  const b64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
+  return { uri, bytes: base64ToBytes(b64) };
+}
+
 // Trouve un fournisseur par nom (insensible à la casse) ou le crée.
 async function findOrCreateSupplier(name: string, establishmentId: string): Promise<string> {
   const trimmed = name.trim();
@@ -96,6 +125,7 @@ export function Capture({ profile }: Props) {
   const [categories, setCategories] = useState<Category[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [pages, setPages] = useState<PickedImage[]>([]);
+  const [pdfUri, setPdfUri] = useState<string | null>(null); // PDF généré (partageable)
   const [classifying, setClassifying] = useState(false);
   const [saving, setSaving] = useState(false);
   const [extraction, setExtraction] = useState<AiExtraction | null>(null);
@@ -121,6 +151,7 @@ export function Capture({ profile }: Props) {
 
   function resetAll() {
     setPages([]);
+    setPdfUri(null);
     setExtraction(null);
     setDocumentId(null);
     setForm(EMPTY_FORM());
@@ -131,16 +162,48 @@ export function Capture({ profile }: Props) {
   function clearResults() {
     setExtraction(null);
     setDocumentId(null);
+    setPdfUri(null);
     setSuccess(false);
   }
 
-  // --- 1) Acquisition des pages (caméra / galerie multi / PDF). Chaque ajout
+  // Scanner natif (détourage + redressement auto). Nécessite un build (dev client/EAS) ;
+  // en Expo Go le module natif est absent → message de repli vers Photo/Galerie.
+  async function scanDocuments() {
+    setError(null);
+    const mod = (() => { try { return require("react-native-document-scanner-plugin"); } catch { return null; } })();
+    const Scanner = mod?.default;
+    if (!Scanner) {
+      setError("Le scan nécessite l'app installée (build). Utilise Photo ou Galerie en attendant.");
+      return;
+    }
+    try {
+      const { scannedImages } = await Scanner.scanDocument({
+        maxNumDocuments: 10,
+        responseType: mod.ResponseType?.Base64 ?? "base64",
+        croppedImageQuality: 90,
+      });
+      const list: string[] = scannedImages ?? [];
+      if (!list.length) return;
+      const next: PickedImage[] = list.map((b64) => ({
+        uri: `data:image/jpeg;base64,${b64}`,
+        bytes: base64ToBytes(b64),
+        contentType: "image/jpeg",
+        base64: b64,
+      }));
+      clearResults();
+      setPages((prev) => [...prev, ...next]);
+    } catch (e: unknown) {
+      setError(`Scan indisponible ici (utilise Photo/Galerie) : ${String((e as Error).message ?? e)}`);
+    }
+  }
+
+  // --- 1) Acquisition des pages (scan / caméra / galerie multi / PDF). Chaque ajout
   //        s'AJOUTE aux pages existantes → un justificatif multi-pages. ---
   function addImageAssets(assets: ImagePicker.ImagePickerAsset[]) {
     const next: PickedImage[] = [];
     for (const a of assets) {
       if (!a.base64) continue;
-      next.push({ uri: a.uri, bytes: base64ToBytes(a.base64), contentType: a.mimeType ?? "image/jpeg" });
+      next.push({ uri: a.uri, bytes: base64ToBytes(a.base64), contentType: a.mimeType ?? "image/jpeg", base64: a.base64 });
     }
     if (!next.length) { setError("Impossible de lire l'image."); return; }
     clearResults();
@@ -178,7 +241,7 @@ export function Capture({ profile }: Props) {
     try {
       const base64 = await FileSystem.readAsStringAsync(asset.uri, { encoding: FileSystem.EncodingType.Base64 });
       clearResults();
-      setPages((prev) => [...prev, { uri: asset.uri, bytes: base64ToBytes(base64), contentType: "application/pdf", name: asset.name }]);
+      setPages((prev) => [...prev, { uri: asset.uri, bytes: base64ToBytes(base64), contentType: "application/pdf", base64, name: asset.name }]);
     } catch (e: unknown) {
       setError(`Impossible de lire le PDF : ${String((e as Error).message ?? e)}`);
     }
@@ -195,13 +258,40 @@ export function Capture({ profile }: Props) {
     setClassifying(true);
     setError(null);
     try {
-      const res = await uploadAndClassifyPages({
-        client: supabase,
-        establishmentId: profile.establishment_id,
-        pages: pages.map((p) => ({ file: p.bytes, contentType: p.contentType })),
-        fileBaseName: `facture-${todayISO()}`,
-        uploadedBy: profile.id,
-      });
+      const imgs = pages.filter((p) => p.contentType !== "application/pdf");
+      const pdfs = pages.filter((p) => p.contentType === "application/pdf");
+
+      let res: { extraction: AiExtraction; documentId: string };
+      let madePdf: string | null = null;
+
+      if (pdfs.length === 0) {
+        // Toutes des images → un seul PDF « scan », c'est lui le justificatif.
+        const pdf = await buildScanPdf(imgs);
+        madePdf = pdf.uri;
+        res = await uploadAndClassify({
+          client: supabase, establishmentId: profile.establishment_id,
+          file: pdf.bytes, fileName: `facture-${todayISO()}.pdf`, contentType: "application/pdf",
+          uploadedBy: profile.id,
+        });
+      } else if (pdfs.length === 1 && imgs.length === 0) {
+        // Déjà un PDF → tel quel.
+        madePdf = pdfs[0]!.uri;
+        res = await uploadAndClassify({
+          client: supabase, establishmentId: profile.establishment_id,
+          file: pdfs[0]!.bytes, fileName: `facture-${todayISO()}.pdf`, contentType: "application/pdf",
+          uploadedBy: profile.id,
+        });
+      } else {
+        // Mélange images + PDF → on envoie les pages telles quelles.
+        res = await uploadAndClassifyPages({
+          client: supabase, establishmentId: profile.establishment_id,
+          pages: pages.map((p) => ({ file: p.bytes, contentType: p.contentType })),
+          fileBaseName: `facture-${todayISO()}`, uploadedBy: profile.id,
+        });
+        if (imgs.length) { try { madePdf = (await buildScanPdf(imgs)).uri; } catch { /* best effort */ } }
+      }
+
+      setPdfUri(madePdf);
       setExtraction(res.extraction);
       setDocumentId(res.documentId);
 
@@ -222,6 +312,17 @@ export function Capture({ profile }: Props) {
     } finally {
       setClassifying(false);
     }
+  }
+
+  async function sharePdf() {
+    if (!pdfUri) return;
+    try {
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(pdfUri, { mimeType: "application/pdf", UTI: "com.adobe.pdf" });
+      } else {
+        setError("Partage indisponible sur cet appareil.");
+      }
+    } catch { /* partage annulé */ }
   }
 
   // --- 3) Enregistrement de la dépense ---
@@ -311,15 +412,25 @@ export function Capture({ profile }: Props) {
             </ScrollView>
           )}
 
+          <Pressable
+            style={({ pressed }) => [styles.btn, styles.btnPrimary, pressed && styles.pressed]}
+            onPress={scanDocuments}
+            accessibilityRole="button"
+            accessibilityLabel="Scanner un document"
+          >
+            <Ionicons name="scan-outline" size={20} color={colors.white} />
+            <Text style={styles.btnPrimaryText}>Scanner</Text>
+          </Pressable>
+
           <View style={styles.row}>
             <Pressable
-              style={({ pressed }) => [styles.btn, styles.btnPrimary, styles.flex1, pressed && styles.pressed]}
+              style={({ pressed }) => [styles.btn, styles.btnGhost, styles.flex1, pressed && styles.pressed]}
               onPress={pickFromCamera}
               accessibilityRole="button"
               accessibilityLabel="Prendre une photo"
             >
-              <Ionicons name="camera" size={20} color={colors.white} />
-              <Text style={styles.btnPrimaryText}>Photo</Text>
+              <Ionicons name="camera" size={20} color={colors.text} />
+              <Text style={styles.btnGhostText}>Photo</Text>
             </Pressable>
             <Pressable
               style={({ pressed }) => [styles.btn, styles.btnGhost, styles.flex1, pressed && styles.pressed]}
@@ -368,6 +479,18 @@ export function Capture({ profile }: Props) {
                 Confiance IA {Math.round(conf * 100)}% · {extraction.document_type}
               </Text>
             </View>
+          )}
+
+          {pdfUri && (
+            <Pressable
+              style={({ pressed }) => [styles.btn, styles.btnGhost, pressed && styles.pressed]}
+              onPress={sharePdf}
+              accessibilityRole="button"
+              accessibilityLabel="Partager ou enregistrer le PDF"
+            >
+              <Ionicons name="document-text-outline" size={18} color={colors.text} />
+              <Text style={styles.btnGhostText}>Voir / partager le PDF</Text>
+            </Pressable>
           )}
         </View>
 

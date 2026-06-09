@@ -17,15 +17,27 @@
     "plugins": [
       [
         "expo-image-picker",
-        { "photosPermission": "Pour photographier vos factures." }
+        {
+          "photosPermission": "Pour photographier vos factures."
+        }
       ],
       [
         "expo-camera",
-        { "cameraPermission": "Pour photographier vos factures." }
+        {
+          "cameraPermission": "Pour photographier vos factures."
+        }
+      ],
+      [
+        "react-native-document-scanner-plugin",
+        {
+          "cameraPermission": "Pour scanner vos factures."
+        }
       ]
     ],
     "extra": {
-      "eas": { "projectId": "TO_FILL_AFTER_EAS_INIT" }
+      "eas": {
+        "projectId": "TO_FILL_AFTER_EAS_INIT"
+      }
     }
   }
 }
