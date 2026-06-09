@@ -33,11 +33,6 @@
           "cameraPermission": "Pour scanner vos factures."
         }
       ]
-    ],
-    "extra": {
-      "eas": {
-        "projectId": "TO_FILL_AFTER_EAS_INIT"
-      }
-    }
+    ]
   }
 }
