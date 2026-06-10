@@ -16,7 +16,7 @@ import { Karla_400Regular, Karla_500Medium, Karla_600SemiBold, Karla_700Bold } f
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { Session } from "@supabase/supabase-js";
 import type { Profile } from "@resto/shared";
-import { supabase } from "./supabaseClient";
+import { supabase, supabaseConfigError } from "./supabaseClient";
 import { Home } from "./Home";
 import { BrandLogo } from "./screens/ui";
 import { colors, radius, shadow, space, TOUCH, type } from "./theme";
@@ -31,7 +31,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [remember, setRemember] = useState(true);
 
-  const [fontsLoaded] = useFonts({
+  const [fontsLoaded, fontError] = useFonts({
     PlayfairDisplay_600SemiBold,
     PlayfairDisplay_700Bold,
     Karla_400Regular,
@@ -90,11 +90,24 @@ export default function App() {
     setSigningIn(false);
   }
 
-  // Attend le chargement des polices pour éviter un flash de texte système.
-  if (!fontsLoaded) {
+  // Attend le chargement des polices (mais ne bloque jamais : si erreur, on
+  // affiche quand même l'app avec la police système).
+  if (!fontsLoaded && !fontError) {
     return (
       <View style={[styles.screen, styles.center]}>
         <ActivityIndicator color={colors.primary} size="large" />
+        <StatusBar style="dark" />
+      </View>
+    );
+  }
+
+  // Garde-fou : configuration manquante → message clair au lieu d'un écran noir.
+  if (supabaseConfigError) {
+    return (
+      <View style={[styles.screen, styles.center, { padding: space.xl }]}>
+        <Ionicons name="warning-outline" size={40} color={colors.danger} />
+        <Text style={styles.cardTitle}>Erreur de configuration</Text>
+        <Text style={[styles.muted, { textAlign: "center" }]}>{supabaseConfigError}</Text>
         <StatusBar style="dark" />
       </View>
     );
