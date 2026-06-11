@@ -39,7 +39,8 @@
         {
           "cameraPermission": "Pour scanner vos factures."
         }
-      ]
+      ],
+      "expo-font"
     ],
     "extra": {
       "eas": {

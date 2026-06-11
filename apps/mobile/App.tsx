@@ -40,6 +40,14 @@ export default function App() {
     Karla_700Bold,
   });
 
+  // Filet de sécurité : si les polices ne se résolvent jamais (build standalone),
+  // on n'attend pas indéfiniment — on affiche l'app après 3 s (police système).
+  const [fontTimeout, setFontTimeout] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setFontTimeout(true), 3000);
+    return () => clearTimeout(t);
+  }, []);
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
     const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
@@ -92,7 +100,7 @@ export default function App() {
 
   // Attend le chargement des polices (mais ne bloque jamais : si erreur, on
   // affiche quand même l'app avec la police système).
-  if (!fontsLoaded && !fontError) {
+  if (!fontsLoaded && !fontError && !fontTimeout) {
     return (
       <View style={[styles.screen, styles.center]}>
         <ActivityIndicator color={colors.primary} size="large" />
