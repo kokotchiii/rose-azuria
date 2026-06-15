@@ -57,6 +57,9 @@ export interface Expense {
   id: UUID;
   establishment_id: UUID;
   expense_date: string; // YYYY-MM-DD
+  due_date: string | null;   // YYYY-MM-DD (échéance de paiement)
+  paid: boolean;             // facture réglée ?
+  paid_at: string | null;
   supplier_id: UUID | null;
   category_id: UUID | null;
   amount_ttc: number;
@@ -126,7 +129,8 @@ export interface AiExtraction {
   document_type: DocType;
   supplier_name: string | null;
   supplier_siret: string | null;
-  document_date: string | null; // YYYY-MM-DD
+  document_date: string | null; // YYYY-MM-DD (date d'émission)
+  due_date: string | null;       // YYYY-MM-DD (date d'échéance / à régler avant)
   invoice_number: string | null;
   currency: "EUR";
   amount_ht: number | null;

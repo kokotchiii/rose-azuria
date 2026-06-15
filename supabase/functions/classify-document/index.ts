@@ -105,6 +105,7 @@ Réponds UNIQUEMENT par un objet JSON valide (pas de texte avant ou après, pas 
   "supplier_name": string | null,
   "supplier_siret": string | null,
   "document_date": "YYYY-MM-DD" | null,
+  "due_date": "YYYY-MM-DD" | null,
   "invoice_number": string | null,
   "currency": "EUR",
   "amount_ht": number | null,
@@ -128,6 +129,7 @@ Règles d'ANCRAGE des champs (c'est ICI que se produisent les erreurs — lis tr
 - "supplier_name" : raison sociale de l'ÉMETTEUR (en-tête, en haut, près du logo). JAMAIS le restaurant destinataire, JAMAIS "Azuria" / "SSM REST" / "ROSE" (= le client).
 - "supplier_siret" : SIRET à 14 chiffres du fournisseur. PAS le SIREN (9 chiffres), PAS le n° de TVA intracommunautaire, PAS un code client.
 - "document_date" : date d'ÉMISSION ("Date facture"). PAS la date d'échéance, PAS la date de livraison (sauf si c'est un bon de livraison).
+- "due_date" : date d'ÉCHÉANCE / limite de paiement ("Date échéance", "À régler avant le", "Payable au", "Échéance", "Date d'exigibilité"). C'est la date à laquelle il FAUT payer. null si absente. NE PAS confondre avec document_date.
 - "invoice_number" : n° de FACTURE du fournisseur ("Facture n°", "N° FACTURE", "Invoice"). PAS un n° de commande, de bon de livraison, de client, ni un n° de TVA.
 - "amount_ttc" : le total FINAL à payer. Cherche, dans l'ordre : "MONTANT DE LA FACTURE", "NET À PAYER", "Total TTC", "Montant dû", "Total à régler". Sur les bons de livraison / factures Sysco, Metro, Promocash, ce total est souvent sur le PAPILLON DÉTACHABLE (colonne "MONTANT DE LA FACTURE") ou en dernière page. JAMAIS un sous-total de page, un montant de ligne, ni le total HT.
 - "amount_ht" : total hors taxes ("TOTAL H.T."). Sur un document multi-pages, additionne les "TOTAL H.T." de chaque page si chacune a le sien. "amount_tva" : montant total de TVA (somme si plusieurs taux).

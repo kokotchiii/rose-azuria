@@ -40,6 +40,7 @@ const AZURIA = "AZURIA";
 
 interface FormState {
   expense_date: string;
+  due_date: string;
   supplier_name: string;
   category_id: string;
   amount_ttc: string;
@@ -55,6 +56,7 @@ const todayISO = () => new Date().toISOString().slice(0, 10);
 
 const EMPTY_FORM = (): FormState => ({
   expense_date: todayISO(),
+  due_date: "",
   supplier_name: "",
   category_id: "",
   amount_ttc: "",
@@ -300,6 +302,7 @@ export function Capture({ profile }: Props) {
       setForm((prev) => ({
         ...prev,
         expense_date: ex.document_date ?? prev.expense_date,
+        due_date: ex.due_date ?? "",
         supplier_name: ex.supplier_name ?? "",
         category_id: matchedCat?.id ?? "",
         amount_ttc: ex.amount_ttc != null ? String(ex.amount_ttc) : "",
@@ -341,6 +344,7 @@ export function Capture({ profile }: Props) {
       const { error: insErr } = await supabase.from("expenses").insert({
         establishment_id: profile.establishment_id,
         expense_date: form.expense_date,
+        due_date: form.due_date || null,
         supplier_id: supplierId,
         category_id: form.category_id || null,
         amount_ttc: Number(form.amount_ttc),
@@ -506,9 +510,14 @@ export function Capture({ profile }: Props) {
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Détails</Text>
 
-            <Field label="Date">
-              <DateField value={form.expense_date} onChange={(v) => setForm({ ...form, expense_date: v })} />
-            </Field>
+            <View style={styles.row}>
+              <Field label="Date" style={styles.flex1}>
+                <DateField value={form.expense_date} onChange={(v) => setForm({ ...form, expense_date: v })} />
+              </Field>
+              <Field label="Échéance (à payer avant)" style={styles.flex1}>
+                <DateField value={form.due_date} onChange={(v) => setForm({ ...form, due_date: v })} placeholder="Aucune" />
+              </Field>
+            </View>
 
             <Field label="Fournisseur">
               <TextInput

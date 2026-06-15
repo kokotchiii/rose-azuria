@@ -658,3 +658,25 @@ export function findExpenseDuplicates(items: ExpenseListItem[]): ExpenseDupGroup
     .filter(([, a]) => a.length > 1)
     .map(([key, dupItems]) => ({ key, items: dupItems }));
 }
+
+// ---------- Échéances / À payer ----------
+// Factures avec une date d'échéance, non encore réglées (triées par échéance).
+export async function fetchPayables(): Promise<ExpenseListItem[]> {
+  const { data, error } = await supabase
+    .from("expenses")
+    .select(REIMB_SELECT)
+    .not("due_date", "is", null)
+    .eq("paid", false)
+    .order("due_date", { ascending: true });
+  if (error) throw error;
+  return (data ?? []) as unknown as ExpenseListItem[];
+}
+
+// Marque une facture comme réglée (ou annule).
+export async function setExpensePaid(expenseId: string, paid: boolean): Promise<void> {
+  const { error } = await supabase
+    .from("expenses")
+    .update({ paid, paid_at: paid ? new Date().toISOString() : null })
+    .eq("id", expenseId);
+  if (error) throw error;
+}
