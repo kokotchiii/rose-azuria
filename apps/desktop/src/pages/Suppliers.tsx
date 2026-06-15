@@ -1,7 +1,10 @@
 // Page Fournisseurs : liste + drill-down sur les factures d'un fournisseur.
 
 import { useEffect, useMemo, useState } from "react";
-import { fetchSuppliersWithStats, fetchExpenses, type SupplierStats, type ExpenseListItem } from "../lib/queries";
+import {
+  fetchSuppliersWithStats, fetchExpenses, findSupplierDuplicates, mergeSuppliers,
+  type SupplierStats, type ExpenseListItem, type SupplierDupGroup,
+} from "../lib/queries";
 import { fmtEUR, fmtDate } from "../lib/format";
 
 export function Suppliers() {
@@ -9,13 +12,34 @@ export function Suppliers() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [expenses, setExpenses] = useState<ExpenseListItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [merging, setMerging] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchSuppliersWithStats().then((s) => {
+  function reload() {
+    return fetchSuppliersWithStats().then((s) => {
       setStats(s);
       setLoading(false);
     });
-  }, []);
+  }
+
+  useEffect(() => { reload(); }, []);
+
+  const duplicates: SupplierDupGroup[] = useMemo(() => findSupplierDuplicates(stats), [stats]);
+
+  // Fusionne un groupe : garde le fournisseur ayant le plus de factures.
+  async function onMerge(group: SupplierDupGroup) {
+    const sorted = [...group.members].sort((a, b) => b.invoice_count - a.invoice_count);
+    const keep = sorted[0];
+    if (!keep) return;
+    const drop = sorted.slice(1).map((m) => m.supplier.id);
+    if (!confirm(`Fusionner ${group.members.length} fournisseurs vers « ${keep.supplier.name} » ? Les factures seront réaffectées.`)) return;
+    setMerging(group.key);
+    try {
+      await mergeSuppliers(keep.supplier.id, drop);
+      await reload();
+    } finally {
+      setMerging(null);
+    }
+  }
 
   useEffect(() => {
     if (!selectedId) return;
@@ -29,6 +53,27 @@ export function Suppliers() {
   return (
     <div className="suppliers-page">
       <h1>Fournisseurs</h1>
+
+      {duplicates.length > 0 && (
+        <div className="card" style={{ marginBottom: "1.25rem" }}>
+          <h2>⚠ Doublons possibles ({duplicates.length})</h2>
+          <p className="muted small">Mêmes fournisseurs sous des noms légèrement différents. La fusion réaffecte les factures vers celui qui en a le plus.</p>
+          {duplicates.map((g) => (
+            <div key={g.key} className="dup-group">
+              <div className="dup-names">
+                {g.members.map((m) => (
+                  <span key={m.supplier.id} className="badge">
+                    {m.supplier.name} ({m.invoice_count})
+                  </span>
+                ))}
+              </div>
+              <button className="primary" disabled={merging !== null} onClick={() => onMerge(g)}>
+                {merging === g.key ? "Fusion…" : "Fusionner"}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="suppliers-grid">
         {/* Colonne gauche : liste */}

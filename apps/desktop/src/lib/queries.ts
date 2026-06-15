@@ -2,6 +2,7 @@
 // RLS s'occupe d'isoler l'établissement, on n'a pas à filtrer manuellement.
 
 import type { Category, Supplier, Expense, Profile, AiExtraction } from "@resto/shared";
+// (Expense est utilisé par les helpers HT/échéances ci-dessous.)
 import { supabase } from "../supabaseClient";
 import { normalizeLabel } from "./normalize";
 
@@ -108,8 +109,9 @@ export async function findDuplicateByHash(
     .select("id")
     .eq("file_hash", fileHash)
     .limit(1);
-  if (!docs?.length) return null;
-  const documentId = docs[0].id as string;
+  const first = docs?.[0];
+  if (!first) return null;
+  const documentId = first.id as string;
   const { data: expense } = await supabase
     .from("expenses")
     .select("id")
@@ -266,6 +268,336 @@ export async function fetchSuppliersWithStats(): Promise<SupplierStats[]> {
 }
 
 // ---------------------------------------------------------------------------
+// Échéances / À payer
+// ---------------------------------------------------------------------------
+
+const ENRICHED_SELECT =
+  "*, supplier:suppliers(name), category:categories(label), payer:profiles!expenses_payer_id_fkey(full_name)";
+
+// Factures avec une date d'échéance, non encore réglées (triées par échéance).
+export async function fetchPayables(): Promise<ExpenseListItem[]> {
+  const { data, error } = await supabase
+    .from("expenses")
+    .select(ENRICHED_SELECT)
+    .not("due_date", "is", null)
+    .eq("paid", false)
+    .order("due_date", { ascending: true });
+  if (error) throw error;
+  return (data ?? []) as unknown as ExpenseListItem[];
+}
+
+// Marque une facture comme réglée (ou annule).
+export async function setExpensePaid(expenseId: string, paid: boolean): Promise<void> {
+  const { error } = await supabase
+    .from("expenses")
+    .update({ paid, paid_at: paid ? new Date().toISOString() : null })
+    .eq("id", expenseId);
+  if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// Notes de frais (remboursements)
+// ---------------------------------------------------------------------------
+
+export interface PayerReimbursement {
+  payer_id: string;
+  payer_name: string;
+  items: ExpenseListItem[];
+  total: number;
+}
+
+function groupByPayer(rows: ExpenseListItem[]): PayerReimbursement[] {
+  const map = new Map<string, PayerReimbursement>();
+  for (const e of rows) {
+    const pid = e.payer_id ?? "?";
+    const g = map.get(pid) ?? {
+      payer_id: pid,
+      payer_name: e.payer?.full_name ?? "Inconnu",
+      items: [],
+      total: 0,
+    };
+    g.items.push(e);
+    g.total += Number(e.amount_ttc ?? 0);
+    map.set(pid, g);
+  }
+  return [...map.values()].sort((a, b) => b.total - a.total);
+}
+
+// À rembourser : avancé par un membre, pas encore remboursé.
+export async function fetchPendingReimbursements(): Promise<PayerReimbursement[]> {
+  const { data, error } = await supabase
+    .from("expenses")
+    .select(ENRICHED_SELECT)
+    .eq("reimbursable", true)
+    .eq("reimbursed", false)
+    .order("expense_date", { ascending: false });
+  if (error) throw error;
+  return groupByPayer((data ?? []) as unknown as ExpenseListItem[]);
+}
+
+// Historique : déjà remboursé (archivé).
+export async function fetchReimbursedHistory(): Promise<PayerReimbursement[]> {
+  const { data, error } = await supabase
+    .from("expenses")
+    .select(ENRICHED_SELECT)
+    .eq("reimbursable", true)
+    .eq("reimbursed", true)
+    .order("reimbursed_at", { ascending: false });
+  if (error) throw error;
+  return groupByPayer((data ?? []) as unknown as ExpenseListItem[]);
+}
+
+// Marque une dépense comme remboursée (ou annule).
+export async function setExpenseReimbursed(expenseId: string, reimbursed: boolean): Promise<void> {
+  const { error } = await supabase
+    .from("expenses")
+    .update({ reimbursed, reimbursed_at: reimbursed ? new Date().toISOString() : null })
+    .eq("id", expenseId);
+  if (error) throw error;
+}
+
+// Marque TOUT le dû d'un membre comme remboursé en une fois.
+export async function settlePayer(payerId: string): Promise<void> {
+  const { error } = await supabase
+    .from("expenses")
+    .update({ reimbursed: true, reimbursed_at: new Date().toISOString() })
+    .eq("payer_id", payerId)
+    .eq("reimbursable", true)
+    .eq("reimbursed", false);
+  if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// Événements (dépenses + recettes rattachées)
+// ---------------------------------------------------------------------------
+
+export interface EventRow {
+  id: string;
+  name: string;
+  event_date: string | null;
+  note: string | null;
+}
+
+export interface EventWithTotals extends EventRow {
+  revenue: number; // total recettes rattachées
+  expense: number; // total dépenses rattachées
+  net: number;     // recettes − dépenses
+}
+
+// Recette simplifiée pour l'affichage dans un événement (montant total agrégé).
+export interface EventRevenue {
+  id: string;
+  revenue_date: string;
+  service: string;
+  total: number;
+}
+
+function revTotal(r: { amount_cash: number; amount_cb: number; amount_other: number }): number {
+  return Number(r.amount_cash ?? 0) + Number(r.amount_cb ?? 0) + Number(r.amount_other ?? 0);
+}
+
+// Liste des événements avec leur rentabilité.
+export async function fetchEvents(): Promise<EventWithTotals[]> {
+  const [{ data: events, error: e1 }, { data: exp, error: e2 }, { data: rev, error: e3 }] = await Promise.all([
+    supabase.from("events").select("id, name, event_date, note").order("event_date", { ascending: false, nullsFirst: false }),
+    supabase.from("expenses").select("event_id, amount_ttc").not("event_id", "is", null),
+    supabase.from("revenues").select("event_id, amount_cash, amount_cb, amount_other").not("event_id", "is", null),
+  ]);
+  if (e1) throw e1;
+  if (e2) throw e2;
+  if (e3) throw e3;
+
+  const expMap = new Map<string, number>();
+  for (const r of (exp ?? []) as Array<{ event_id: string; amount_ttc: number }>) {
+    expMap.set(r.event_id, (expMap.get(r.event_id) ?? 0) + Number(r.amount_ttc ?? 0));
+  }
+  const revMap = new Map<string, number>();
+  for (const r of (rev ?? []) as Array<{ event_id: string; amount_cash: number; amount_cb: number; amount_other: number }>) {
+    revMap.set(r.event_id, (revMap.get(r.event_id) ?? 0) + revTotal(r));
+  }
+  return ((events ?? []) as EventRow[]).map((ev) => {
+    const revenue = revMap.get(ev.id) ?? 0;
+    const expense = expMap.get(ev.id) ?? 0;
+    return { ...ev, revenue, expense, net: revenue - expense };
+  });
+}
+
+export async function createEvent(
+  establishmentId: string,
+  name: string,
+  eventDate: string | null,
+  createdBy: string,
+): Promise<EventRow> {
+  const { data, error } = await supabase
+    .from("events")
+    .insert({ establishment_id: establishmentId, name: name.trim(), event_date: eventDate, created_by: createdBy })
+    .select("id, name, event_date, note")
+    .single();
+  if (error || !data) throw error ?? new Error("event_create_failed");
+  return data as EventRow;
+}
+
+// Dépenses / recettes rattachées à un événement (eventId), ou libres (null).
+export async function fetchExpensesForEvent(eventId: string | null): Promise<ExpenseListItem[]> {
+  let q = supabase.from("expenses").select(ENRICHED_SELECT).order("expense_date", { ascending: false });
+  q = eventId === null ? q.is("event_id", null) : q.eq("event_id", eventId);
+  const { data, error } = await q;
+  if (error) throw error;
+  return (data ?? []) as unknown as ExpenseListItem[];
+}
+
+export async function fetchRevenuesForEvent(eventId: string | null): Promise<EventRevenue[]> {
+  let q = supabase
+    .from("revenues")
+    .select("id, revenue_date, service, amount_cash, amount_cb, amount_other")
+    .order("revenue_date", { ascending: false });
+  q = eventId === null ? q.is("event_id", null) : q.eq("event_id", eventId);
+  const { data, error } = await q;
+  if (error) throw error;
+  return ((data ?? []) as Array<{ id: string; revenue_date: string; service: string; amount_cash: number; amount_cb: number; amount_other: number }>)
+    .map((r) => ({ id: r.id, revenue_date: r.revenue_date, service: r.service, total: revTotal(r) }));
+}
+
+// Rattacher / détacher un item (eventId = null pour détacher).
+export async function setExpenseEvent(expenseId: string, eventId: string | null): Promise<void> {
+  const { error } = await supabase.from("expenses").update({ event_id: eventId }).eq("id", expenseId);
+  if (error) throw error;
+}
+
+export async function setRevenueEvent(revenueId: string, eventId: string | null): Promise<void> {
+  const { error } = await supabase.from("revenues").update({ event_id: eventId }).eq("id", revenueId);
+  if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// Édition / suppression d'une dépense
+// ---------------------------------------------------------------------------
+
+// Change le payeur d'une dépense. payerId = null → la société (Azuria) a payé.
+export async function updateExpensePayer(expenseId: string, payerId: string | null): Promise<void> {
+  const isCompany = payerId === null;
+  const { error } = await supabase
+    .from("expenses")
+    .update({
+      payer_id: payerId,
+      payment_source: isCompany ? "cb_pro" : "cb_perso",
+      ...(isCompany ? { reimbursable: false, reimbursed: false } : {}),
+    })
+    .eq("id", expenseId);
+  if (error) throw error;
+}
+
+// Suppression d'une dépense (+ son justificatif : fichier Storage + ligne documents).
+export async function deleteExpense(expenseId: string, documentId?: string | null): Promise<void> {
+  const { error } = await supabase.from("expenses").delete().eq("id", expenseId);
+  if (error) throw error;
+  if (documentId) {
+    const { data: doc } = await supabase.from("documents").select("storage_path").eq("id", documentId).maybeSingle();
+    const path = (doc as { storage_path?: string } | null)?.storage_path;
+    if (path) { try { await supabase.storage.from("documents").remove([path]); } catch { /* best effort */ } }
+    await supabase.from("documents").delete().eq("id", documentId);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Doublons de DÉPENSES (même facture saisie 2 fois)
+// ---------------------------------------------------------------------------
+
+export interface ExpenseDupGroup {
+  key: string;
+  items: ExpenseListItem[];
+}
+
+// Signature : même fournisseur + (même n° de facture) OU (même montant + même date).
+export function findExpenseDuplicates(items: ExpenseListItem[]): ExpenseDupGroup[] {
+  const map = new Map<string, ExpenseListItem[]>();
+  for (const e of items) {
+    const sup = e.supplier_id ?? (e.supplier?.name ?? "?").toLowerCase();
+    const inv = (e.invoice_number ?? "").trim().toLowerCase();
+    const amount = Number(e.amount_ttc || 0).toFixed(2);
+    const key = inv ? `${sup}|inv:${inv}` : `${sup}|${amount}|${e.expense_date}`;
+    const arr = map.get(key) ?? [];
+    arr.push(e);
+    map.set(key, arr);
+  }
+  return [...map.entries()]
+    .filter(([, a]) => a.length > 1)
+    .map(([key, dupItems]) => ({ key, items: dupItems }));
+}
+
+// ---------------------------------------------------------------------------
+// Rapprochement de fournisseurs (doublons)
+// ---------------------------------------------------------------------------
+
+// Normalise un nom pour repérer les doublons : minuscules, sans accents, sans
+// forme juridique (EURL/SARL/SAS…), sans ponctuation.
+export function normalizeSupplierName(name: string): string {
+  return (name ?? "")
+    .toLowerCase()
+    .normalize("NFD").replace(/[̀-ͯ]/g, "")
+    .replace(/\b(eurl|sarl|sasu|sas|sa|sci|eirl|ets|etablissement|etablissements|snc|scop|scea|gaec|earl)\b/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+export interface SupplierDupGroup {
+  key: string;
+  members: SupplierStats[]; // ≥ 2 fournisseurs au même nom normalisé
+}
+
+// Groupe les fournisseurs qui semblent être le même (nom normalisé identique).
+export function findSupplierDuplicates(suppliers: SupplierStats[]): SupplierDupGroup[] {
+  const map = new Map<string, SupplierStats[]>();
+  for (const s of suppliers) {
+    const key = normalizeSupplierName(s.supplier.name);
+    if (!key) continue;
+    const arr = map.get(key) ?? [];
+    arr.push(s);
+    map.set(key, arr);
+  }
+  return [...map.entries()]
+    .filter(([, arr]) => arr.length > 1)
+    .map(([key, members]) => ({ key, members }));
+}
+
+// Fusionne des fournisseurs : réaffecte leurs dépenses vers `keepId` puis supprime
+// les doublons.
+export async function mergeSuppliers(keepId: string, dropIds: string[]): Promise<void> {
+  for (const dropId of dropIds) {
+    if (dropId === keepId) continue;
+    const { error: e1 } = await supabase.from("expenses").update({ supplier_id: keepId }).eq("supplier_id", dropId);
+    if (e1) throw e1;
+    const { error: e2 } = await supabase.from("suppliers").delete().eq("id", dropId);
+    if (e2) throw e2;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers HT/TVA pour le prévisionnel
+// ---------------------------------------------------------------------------
+
+// Nombre de services que représente une saisie : une « journée » couvre midi + soir (2).
+export function serviceUnits(service: string): number {
+  return service === "journee" ? 2 : 1;
+}
+
+// CA HT d'une recette = TTC − TVA (déduite du taux par défaut faute de TVA stockée côté desktop).
+export function revenueHT(
+  r: { amount_cash: number; amount_cb: number; amount_other: number },
+  defaultRate: number,
+): number {
+  const ttc = revTotal(r);
+  return ttc / (1 + defaultRate / 100);
+}
+
+// HT d'une dépense : TTC − TVA (si la TVA est connue, sinon null).
+export function expenseHT(e: Pick<Expense, "amount_ttc" | "amount_tva">): number | null {
+  if (e.amount_tva == null) return null;
+  return Number(e.amount_ttc) - Number(e.amount_tva);
+}
+
+// ---------------------------------------------------------------------------
 // Stats Produits récurrents
 // ---------------------------------------------------------------------------
 
@@ -314,7 +646,7 @@ export async function fetchProductStats(filters: {
     }
   >();
 
-  for (const row of (data ?? []) as Array<{
+  for (const row of (data ?? []) as unknown as Array<{
     normalized_label: string;
     description: string;
     quantity: number | null;

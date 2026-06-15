@@ -165,3 +165,36 @@ label.full { grid-column: 1 / -1; }
 .revenue-form h2 { margin-bottom: 0.75rem; }
 .form-total { margin-top: 0.5rem; padding: 0.5rem 0.75rem; background: #f0f9ff; border-radius: 6px; font-size: 0.95rem; }
 .form-total b { color: var(--primary); font-size: 1.1rem; }
+
+/* ===== Onglets (segmented) ===== */
+.tabs { display: inline-flex; gap: 0.25rem; padding: 0.25rem; background: #f3f4f6; border-radius: 8px; margin-bottom: 1.25rem; }
+.tab { background: none; border: none; padding: 0.45rem 1rem; border-radius: 6px; font-size: 0.9rem; color: var(--muted); }
+.tab.active { background: white; color: var(--text); font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
+
+/* Utilitaires couleur */
+.warn-text { color: var(--warn); }
+.danger { color: var(--error); }
+button.link.danger { color: var(--error); }
+
+/* Payable / échéancier */
+.row-late { background: #fef2f2; }
+
+/* Notes de frais */
+.reimb-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; }
+.reimb-total { font-size: 1.3rem; font-weight: 700; color: var(--primary); }
+
+/* Événements : modale de rattachement */
+.modal-backdrop {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.4);
+  display: flex; align-items: center; justify-content: center; z-index: 100;
+}
+.modal-sheet {
+  background: var(--surface); border-radius: 12px; padding: 1.5rem;
+  width: 100%; max-width: 640px; max-height: 80vh; overflow: auto;
+}
+.modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+
+/* Fournisseurs : doublons */
+.dup-group { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: 0.6rem 0; border-bottom: 1px solid var(--border); }
+.dup-group:last-child { border-bottom: none; }
+.dup-names { display: flex; gap: 0.4rem; flex-wrap: wrap; }

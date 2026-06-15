@@ -9,6 +9,10 @@ import { Products } from "./pages/Products";
 import { Todos } from "./pages/Todos";
 import { Export } from "./pages/Export";
 import { Revenues } from "./pages/Revenues";
+import { Payable } from "./pages/Payable";
+import { Reimbursements } from "./pages/Reimbursements";
+import { Events } from "./pages/Events";
+import { Previsionnel } from "./pages/Previsionnel";
 import { useAuth } from "./hooks/useAuth";
 
 export function App() {
@@ -32,6 +36,10 @@ export function App() {
       {page === "todos"     && <Todos profile={profile} />}
       {page === "export"    && <Export />}
       {page === "revenues"  && <Revenues profile={profile} />}
+      {page === "payable"   && <Payable />}
+      {page === "reimbursements" && <Reimbursements />}
+      {page === "events"    && <Events profile={profile} />}
+      {page === "previsionnel" && <Previsionnel />}
     </Layout>
   );
 }

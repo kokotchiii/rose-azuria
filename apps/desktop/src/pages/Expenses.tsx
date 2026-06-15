@@ -4,8 +4,8 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   fetchCategories, fetchSuppliers, fetchExpenses, fetchProfiles,
-  fetchExpenseDetail, getDocumentSignedUrl,
-  type ExpenseListItem, type ExpenseItemRow,
+  fetchExpenseDetail, getDocumentSignedUrl, deleteExpense, findExpenseDuplicates,
+  type ExpenseListItem, type ExpenseItemRow, type ExpenseDupGroup,
 } from "../lib/queries";
 import type { Category, Supplier, Profile } from "@resto/shared";
 import { fmtEUR, fmtDate, startOfMonthISO, todayISO } from "../lib/format";
@@ -41,11 +41,16 @@ export function Expenses() {
     fetchProfiles().then(setProfiles).catch(console.error);
   }, []);
 
-  useEffect(() => {
+  function reload() {
     setLoading(true);
     fetchExpenses({ from, to, categoryId, supplierId, payerId })
       .then(setRows)
       .finally(() => setLoading(false));
+  }
+
+  useEffect(() => {
+    reload();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [from, to, categoryId, supplierId, payerId]);
 
   // Recherche textuelle + montant min côté client
@@ -98,6 +103,16 @@ export function Expenses() {
   }, [sorted, groupKey]);
 
   const grandTotal = useMemo(() => sorted.reduce((s, r) => s + Number(r.amount_ttc), 0), [sorted]);
+
+  // Détection de doublons (sur les dépenses filtrées).
+  const [showDup, setShowDup] = useState(false);
+  const duplicates: ExpenseDupGroup[] = useMemo(() => findExpenseDuplicates(filtered), [filtered]);
+
+  async function onDelete(r: ExpenseListItem) {
+    if (!confirm(`Supprimer la dépense ${r.supplier?.name ?? ""} du ${fmtDate(r.expense_date)} (${fmtEUR(Number(r.amount_ttc))}) et son justificatif ?`)) return;
+    await deleteExpense(r.id, r.document_id);
+    reload();
+  }
 
   async function toggleExpand(r: ExpenseListItem) {
     const next = new Set(expanded);
@@ -180,8 +195,38 @@ export function Expenses() {
 
       <div className="totals-bar">
         <span>{sorted.length} dépense{sorted.length > 1 ? "s" : ""}</span>
-        <span className="total">Total : <b>{fmtEUR(grandTotal)}</b></span>
+        <span style={{ display: "flex", gap: "1rem", alignItems: "center" }}>
+          {duplicates.length > 0 && (
+            <button className="link warn-text" onClick={() => setShowDup((v) => !v)}>
+              ⚠ {duplicates.length} doublon{duplicates.length > 1 ? "s" : ""} possible{duplicates.length > 1 ? "s" : ""}
+            </button>
+          )}
+          <span className="total">Total : <b>{fmtEUR(grandTotal)}</b></span>
+        </span>
       </div>
+
+      {showDup && duplicates.length > 0 && (
+        <div className="card" style={{ marginBottom: "1rem" }}>
+          <h2>Doublons possibles</h2>
+          {duplicates.map((g) => (
+            <div key={g.key} className="group-block">
+              <table className="exp-table">
+                <tbody>
+                  {g.items.map((r) => (
+                    <tr key={r.id}>
+                      <td><b>{r.supplier?.name ?? "—"}</b></td>
+                      <td>{fmtDate(r.expense_date)}</td>
+                      <td>{r.invoice_number ?? "—"}</td>
+                      <td className="num">{fmtEUR(Number(r.amount_ttc))}</td>
+                      <td><button className="link danger" onClick={() => onDelete(r)}>Supprimer</button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ))}
+        </div>
+      )}
 
       {loading ? (
         <p className="muted">Chargement…</p>
@@ -199,12 +244,14 @@ export function Expenses() {
                 <tr>
                   <th></th>
                   <th>Date</th>
+                  <th>Échéance</th>
                   <th>Fournisseur</th>
                   <th>Catégorie</th>
                   <th>Payeur</th>
                   <th>Source</th>
                   <th className="num">TTC</th>
                   <th>Statut</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
@@ -216,6 +263,7 @@ export function Expenses() {
                     items={detailCache[r.id] ?? null}
                     onToggle={() => toggleExpand(r)}
                     onOpenDoc={() => r.document_id && openDocument(r.document_id)}
+                    onDelete={() => onDelete(r)}
                   />
                 ))}
               </tbody>
@@ -239,18 +287,21 @@ function ExpenseRowExpandable({
   items,
   onToggle,
   onOpenDoc,
+  onDelete,
 }: {
   row: ExpenseListItem;
   expanded: boolean;
   items: ExpenseItemRow[] | null;
   onToggle: () => void;
   onOpenDoc: () => void;
+  onDelete: () => void;
 }) {
   return (
     <>
       <tr className="row-clickable" onClick={onToggle}>
         <td className="caret">{expanded ? "▼" : "▶"}</td>
         <td>{fmtDate(row.expense_date)}</td>
+        <td>{row.due_date ? fmtDate(row.due_date) : "—"}</td>
         <td><b>{row.supplier?.name ?? "—"}</b></td>
         <td>{row.category?.label ?? "—"}</td>
         <td>{row.payer?.full_name ?? <span className="badge ok">Azuria</span>}</td>
@@ -259,11 +310,16 @@ function ExpenseRowExpandable({
         <td>
           {row.reimbursable && !row.reimbursed && <span className="badge warn">À rembourser</span>}
           {row.reimbursable && row.reimbursed && <span className="badge ok">Remboursé</span>}
+          {row.due_date && !row.paid && <span className="badge warn">À payer</span>}
+          {row.due_date && row.paid && <span className="badge ok">Payée</span>}
+        </td>
+        <td>
+          <button className="link danger" onClick={(e) => { e.stopPropagation(); onDelete(); }}>×</button>
         </td>
       </tr>
       {expanded && (
         <tr className="row-detail">
-          <td colSpan={8}>
+          <td colSpan={10}>
             <div className="detail-grid">
               <div>
                 <div className="detail-section">
