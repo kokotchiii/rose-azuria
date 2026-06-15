@@ -621,3 +621,40 @@ export async function mergeSuppliers(keepId: string, dropIds: string[]): Promise
     if (e2) throw e2;
   }
 }
+
+// ---------- Suppression d'une dépense (+ son justificatif) ----------
+export async function deleteExpense(expenseId: string, documentId?: string | null): Promise<void> {
+  const { error } = await supabase.from("expenses").delete().eq("id", expenseId);
+  if (error) throw error;
+  // Supprime aussi le justificatif lié (fichier Storage + ligne documents).
+  if (documentId) {
+    const { data: doc } = await supabase.from("documents").select("storage_path").eq("id", documentId).maybeSingle();
+    const path = (doc as { storage_path?: string } | null)?.storage_path;
+    if (path) { try { await supabase.storage.from("documents").remove([path]); } catch { /* best effort */ } }
+    await supabase.from("documents").delete().eq("id", documentId);
+  }
+}
+
+// ---------- Doublons de DÉPENSES (même facture saisie 2 fois) ----------
+// Signature : même fournisseur + (même n° de facture) OU (même montant + même date).
+export interface ExpenseDupGroup {
+  key: string;
+  items: ExpenseListItem[];
+}
+
+export function findExpenseDuplicates(items: ExpenseListItem[]): ExpenseDupGroup[] {
+  const map = new Map<string, ExpenseListItem[]>();
+  for (const e of items) {
+    const sup = e.supplier_id ?? (e.supplier?.name ?? "?").toLowerCase();
+    const inv = (e.invoice_number ?? "").trim().toLowerCase();
+    const amount = Number(e.amount_ttc || 0).toFixed(2);
+    // Si un n° de facture est connu, il prime (le plus fiable). Sinon montant + date.
+    const key = inv ? `${sup}|inv:${inv}` : `${sup}|${amount}|${e.expense_date}`;
+    const arr = map.get(key) ?? [];
+    arr.push(e);
+    map.set(key, arr);
+  }
+  return [...map.entries()]
+    .filter(([, a]) => a.length > 1)
+    .map(([key, dupItems]) => ({ key, items: dupItems }));
+}

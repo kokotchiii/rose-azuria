@@ -2,11 +2,14 @@ import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Linking, Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import {
+  deleteExpense,
   fetchExpenses,
   fetchMembers,
+  findExpenseDuplicates,
   getDocumentSignedUrl,
   setExpenseReimbursed,
   updateExpensePayer,
+  type ExpenseDupGroup,
   type ExpenseListItem,
   type Member,
 } from "../lib/data";
@@ -36,6 +39,24 @@ export function ExpensesScreen() {
   const [saving, setSaving] = useState(false);
   const [docBusy, setDocBusy] = useState(false);
   const [docErr, setDocErr] = useState<string | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState(false); // confirme la suppression
+  const [dupReview, setDupReview] = useState<ExpenseDupGroup | null>(null); // groupe de doublons à examiner
+
+  // Supprime une dépense (+ son justificatif) et met à jour les listes locales.
+  async function removeExpense(e: ExpenseListItem) {
+    setSaving(true);
+    try {
+      await deleteExpense(e.id, e.document_id);
+      setItems((prev) => prev.filter((it) => it.id !== e.id));
+      setEditing(null);
+      setDeleteConfirm(false);
+      setDupReview((g) => (g ? { ...g, items: g.items.filter((it) => it.id !== e.id) } : g));
+    } catch {
+      // laisse la modale ouverte
+    } finally {
+      setSaving(false);
+    }
+  }
 
   // Ouvre le justificatif (PDF/image) stocké via une URL signée temporaire.
   async function openDocument(e: ExpenseListItem) {
@@ -53,6 +74,9 @@ export function ExpensesScreen() {
     }
   }
 
+  // Réinitialise la confirmation de suppression à chaque ouverture/fermeture de fiche.
+  useEffect(() => { setDeleteConfirm(false); }, [editing?.id]);
+
   // Tri & filtres (type / fournisseur).
   const [sortBy, setSortBy] = useState<"date" | "amount">("date");
   const [catFilter, setCatFilter] = useState<string | null>(null); // null = toutes
@@ -69,6 +93,9 @@ export function ExpensesScreen() {
     for (const e of items) if (e.supplier?.name) set.add(e.supplier.name);
     return [...set].sort((a, b) => a.localeCompare(b));
   }, [items]);
+
+  // Dépenses en double (même facture saisie 2 fois : scan + photo).
+  const expenseDups = useMemo(() => findExpenseDuplicates(items), [items]);
 
   // Liste affichée : filtrée (type + fournisseur) puis triée.
   const visible = useMemo(() => {
@@ -181,6 +208,24 @@ export function ExpensesScreen() {
 
   return (
     <Screen>
+      {/* Doublons de dépenses (même facture saisie 2 fois) */}
+      {expenseDups.length > 0 && (
+        <Card style={styles.dupCard}>
+          <View style={styles.dupHead}>
+            <Ionicons name="copy-outline" size={18} color={colors.gold} />
+            <Text style={styles.dupTitle}>{expenseDups.length} doublon{expenseDups.length > 1 ? "s" : ""} possible{expenseDups.length > 1 ? "s" : ""}</Text>
+          </View>
+          {expenseDups.map((g) => (
+            <Pressable key={g.key} style={styles.dupRow} onPress={() => setDupReview(g)} accessibilityRole="button">
+              <Text style={styles.dupNames} numberOfLines={1}>
+                {g.items[0]?.supplier?.name ?? "Sans fournisseur"} · {fmtEUR(Number(g.items[0]?.amount_ttc))} · {g.items.length}×
+              </Text>
+              <Text style={styles.dupBtnText}>Examiner</Text>
+            </Pressable>
+          ))}
+        </Card>
+      )}
+
       {/* Tri */}
       <Segmented<"date" | "amount">
         options={[{ key: "date", label: "Plus récentes" }, { key: "amount", label: "Montant" }]}
@@ -308,7 +353,28 @@ export function ExpensesScreen() {
             </Pressable>
             {docErr && <Text style={styles.docErrText}>{docErr}</Text>}
 
-            {saving && (
+            {/* Supprimer la dépense + son justificatif */}
+            <View style={styles.sep} />
+            {!deleteConfirm ? (
+              <Pressable style={({ pressed }) => [styles.delBtn, pressed && { opacity: 0.85 }]} onPress={() => setDeleteConfirm(true)} disabled={saving} accessibilityRole="button">
+                <Ionicons name="trash-outline" size={18} color={colors.danger} />
+                <Text style={styles.delText}>Supprimer la dépense</Text>
+              </Pressable>
+            ) : (
+              <View style={{ gap: space.sm }}>
+                <Text style={styles.delConfirmText}>Supprimer définitivement cette dépense et son justificatif ?</Text>
+                <View style={styles.delConfirmRow}>
+                  <Pressable style={[styles.delHalf, styles.delNo]} onPress={() => setDeleteConfirm(false)} disabled={saving} accessibilityRole="button">
+                    <Text style={styles.delNoText}>Non</Text>
+                  </Pressable>
+                  <Pressable style={[styles.delHalf, styles.delYes]} onPress={() => editing && removeExpense(editing)} disabled={saving} accessibilityRole="button">
+                    {saving ? <ActivityIndicator color={colors.white} /> : <Text style={styles.delYesText}>Oui, supprimer</Text>}
+                  </Pressable>
+                </View>
+              </View>
+            )}
+
+            {saving && !deleteConfirm && (
               <View style={styles.savingRow}>
                 <ActivityIndicator color={colors.primary} />
                 <Text style={styles.savingText}>Enregistrement…</Text>
@@ -318,6 +384,31 @@ export function ExpensesScreen() {
             <Pressable style={styles.cancelBtn} onPress={() => !saving && setEditing(null)} accessibilityRole="button">
               <Text style={styles.cancelText}>Annuler</Text>
             </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* Modale : examiner / supprimer un doublon de dépense */}
+      <Modal visible={dupReview !== null} transparent animationType="fade" onRequestClose={() => !saving && setDupReview(null)}>
+        <Pressable style={styles.backdrop} onPress={() => !saving && setDupReview(null)}>
+          <Pressable style={styles.sheet} onPress={() => {}}>
+            <Text style={styles.sheetTitle}>Doublon de dépense</Text>
+            <Text style={styles.sheetSub}>Ces dépenses semblent identiques. Garde-en une et supprime l'autre (avec son justificatif).</Text>
+            {dupReview?.items.map((e) => (
+              <View key={e.id} style={styles.dupItem}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.dupItemTitle} numberOfLines={1}>{e.supplier?.name ?? "Sans fournisseur"} · {fmtEUR(Number(e.amount_ttc))}</Text>
+                  <Text style={styles.dupItemMeta}>
+                    {fmtDate(e.expense_date)}{e.invoice_number ? ` · n° ${e.invoice_number}` : ""}{e.document_id ? " · justificatif joint" : ""}
+                  </Text>
+                </View>
+                <Pressable style={({ pressed }) => [styles.dupDel, pressed && { opacity: 0.85 }]} onPress={() => removeExpense(e)} disabled={saving} accessibilityRole="button" accessibilityLabel="Supprimer ce doublon">
+                  <Ionicons name="trash-outline" size={18} color={colors.danger} />
+                </Pressable>
+              </View>
+            ))}
+            {saving && <View style={styles.savingRow}><ActivityIndicator color={colors.primary} /><Text style={styles.savingText}>Suppression…</Text></View>}
+            <Pressable style={styles.cancelBtn} onPress={() => !saving && setDupReview(null)} accessibilityRole="button"><Text style={styles.cancelText}>Fermer</Text></Pressable>
           </Pressable>
         </Pressable>
       </Modal>
@@ -359,6 +450,28 @@ const styles = StyleSheet.create({
   docBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: space.sm, minHeight: 44, borderRadius: radius.md, backgroundColor: colors.chipBg, borderWidth: 1, borderColor: colors.border },
   docBtnText: { ...type.title },
   docErrText: { ...type.small, color: colors.danger, textAlign: "center" },
+
+  dupCard: { backgroundColor: "#FEF3C7", borderWidth: 1, borderColor: colors.gold, gap: space.sm },
+  dupHead: { flexDirection: "row", alignItems: "center", gap: space.sm },
+  dupTitle: { ...type.title, color: colors.gold },
+  dupRow: { flexDirection: "row", alignItems: "center", gap: space.sm },
+  dupNames: { ...type.small, color: colors.text, flex: 1 },
+  dupBtnText: { ...type.small, color: colors.gold, fontWeight: "700" },
+
+  delBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: space.sm, minHeight: 44, borderRadius: radius.md, backgroundColor: colors.dangerBg, borderWidth: 1, borderColor: colors.danger },
+  delText: { ...type.title, color: colors.danger },
+  delConfirmText: { ...type.small, color: colors.text, textAlign: "center" },
+  delConfirmRow: { flexDirection: "row", gap: space.sm },
+  delHalf: { flex: 1, minHeight: 44, borderRadius: radius.md, alignItems: "center", justifyContent: "center" },
+  delNo: { backgroundColor: colors.chipBg, borderWidth: 1, borderColor: colors.border },
+  delNoText: { ...type.title, color: colors.text },
+  delYes: { backgroundColor: colors.danger },
+  delYesText: { ...type.title, color: colors.white },
+
+  dupItem: { flexDirection: "row", alignItems: "center", gap: space.sm, padding: space.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border },
+  dupItemTitle: { ...type.title, color: colors.text },
+  dupItemMeta: { ...type.small, color: colors.textMuted },
+  dupDel: { minWidth: 40, minHeight: 40, alignItems: "center", justifyContent: "center" },
   savingRow: { flexDirection: "row", alignItems: "center", gap: space.sm },
   savingText: { ...type.small, color: colors.textMuted },
   cancelBtn: { minHeight: 44, alignItems: "center", justifyContent: "center", marginTop: space.xs },
