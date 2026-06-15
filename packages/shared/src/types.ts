@@ -53,9 +53,13 @@ export interface DocumentRecord {
   created_at: string;
 }
 
+// Type de dépense : facture fournisseur vs achat de dépannage (petit achat / note de frais).
+export type ExpenseKind = "facture" | "depannage";
+
 export interface Expense {
   id: UUID;
   establishment_id: UUID;
+  kind: ExpenseKind;
   expense_date: string; // YYYY-MM-DD
   due_date: string | null;   // YYYY-MM-DD (échéance de paiement)
   paid: boolean;             // facture réglée ?

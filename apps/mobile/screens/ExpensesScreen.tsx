@@ -79,6 +79,7 @@ export function ExpensesScreen() {
 
   // Tri & filtres (type / fournisseur).
   const [sortBy, setSortBy] = useState<"date" | "amount">("date");
+  const [kindFilter, setKindFilter] = useState<"all" | "facture" | "depannage">("all");
   const [catFilter, setCatFilter] = useState<string | null>(null); // null = toutes
   const [supFilter, setSupFilter] = useState<string | null>(null); // null = tous
 
@@ -100,13 +101,14 @@ export function ExpensesScreen() {
   // Liste affichée : filtrée (type + fournisseur) puis triée.
   const visible = useMemo(() => {
     let filtered = items;
+    if (kindFilter !== "all") filtered = filtered.filter((e) => (e.kind ?? "facture") === kindFilter);
     if (catFilter) filtered = filtered.filter((e) => e.category?.label === catFilter);
     if (supFilter) filtered = filtered.filter((e) => e.supplier?.name === supFilter);
     const arr = [...filtered];
     if (sortBy === "amount") arr.sort((a, b) => Number(b.amount_ttc) - Number(a.amount_ttc));
     else arr.sort((a, b) => (a.expense_date < b.expense_date ? 1 : -1));
     return arr;
-  }, [items, catFilter, supFilter, sortBy]);
+  }, [items, kindFilter, catFilter, supFilter, sortBy]);
 
   // Regroupement par mois (uniquement en tri par date) → navigation « par date ».
   const sections = useMemo(() => {
@@ -193,6 +195,7 @@ export function ExpensesScreen() {
         </View>
         <View style={styles.row}>
           <Text style={styles.meta}>{fmtDate(e.expense_date)} · {e.category?.label ?? "—"}</Text>
+          {(e.kind ?? "facture") === "depannage" && <Text style={styles.kindTag}>Dépannage</Text>}
           {e.reimbursable && !e.reimbursed && <Text style={styles.tag}>à rembourser</Text>}
           {e.reimbursable && e.reimbursed && <Text style={styles.tagDone}>remboursé</Text>}
         </View>
@@ -225,6 +228,13 @@ export function ExpensesScreen() {
           ))}
         </Card>
       )}
+
+      {/* Type : factures fournisseurs vs achats de dépannage */}
+      <Segmented<"all" | "facture" | "depannage">
+        options={[{ key: "all", label: "Tout" }, { key: "facture", label: "Factures" }, { key: "depannage", label: "Dépannage" }]}
+        value={kindFilter}
+        onChange={setKindFilter}
+      />
 
       {/* Tri */}
       <Segmented<"date" | "amount">
@@ -425,6 +435,7 @@ const styles = StyleSheet.create({
   amount: { ...type.title, color: colors.primary },
   meta: { ...type.small, color: colors.textMuted },
   tag: { ...type.small, color: colors.gold, fontWeight: "600" },
+  kindTag: { ...type.small, color: colors.secondary, fontWeight: "700", fontSize: 11 },
   tagDone: { ...type.small, color: colors.success, fontWeight: "600" },
   payerRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 2 },
   payer: { ...type.small, color: colors.textMuted },

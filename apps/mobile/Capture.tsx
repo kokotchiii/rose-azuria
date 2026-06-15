@@ -18,7 +18,7 @@ import * as FileSystem from "expo-file-system/legacy";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import { uploadAndClassify, uploadAndClassifyPages, PAYMENT_SOURCES } from "@resto/shared";
-import type { AiExtraction, Category, PaymentSource, Profile } from "@resto/shared";
+import type { AiExtraction, Category, ExpenseKind, PaymentSource, Profile } from "@resto/shared";
 import { supabase } from "./supabaseClient";
 import { DateField } from "./screens/ui";
 import { colors, radius, shadow, space, TOUCH, type } from "./theme";
@@ -39,6 +39,7 @@ interface PickedImage {
 const AZURIA = "AZURIA";
 
 interface FormState {
+  kind: ExpenseKind;
   expense_date: string;
   due_date: string;
   supplier_name: string;
@@ -55,6 +56,7 @@ interface FormState {
 const todayISO = () => new Date().toISOString().slice(0, 10);
 
 const EMPTY_FORM = (): FormState => ({
+  kind: "facture",
   expense_date: todayISO(),
   due_date: "",
   supplier_name: "",
@@ -301,6 +303,8 @@ export function Capture({ profile }: Props) {
       const matchedCat = categories.find((c) => c.label === ex.suggested_category);
       setForm((prev) => ({
         ...prev,
+        // Ticket / note de frais / autre → dépannage ; facture / BL → facture fournisseur.
+        kind: ex.document_type === "facture" || ex.document_type === "bon_de_livraison" ? "facture" : "depannage",
         expense_date: ex.document_date ?? prev.expense_date,
         due_date: ex.due_date ?? "",
         supplier_name: ex.supplier_name ?? "",
@@ -343,6 +347,7 @@ export function Capture({ profile }: Props) {
 
       const { error: insErr } = await supabase.from("expenses").insert({
         establishment_id: profile.establishment_id,
+        kind: form.kind,
         expense_date: form.expense_date,
         due_date: form.due_date || null,
         supplier_id: supplierId,
@@ -509,6 +514,13 @@ export function Capture({ profile }: Props) {
         {extraction && (
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Détails</Text>
+
+            <Field label="Type de dépense">
+              <View style={styles.chipsWrap}>
+                <Chip label="Facture fournisseur" icon="document-text-outline" active={form.kind === "facture"} onPress={() => setForm({ ...form, kind: "facture" })} />
+                <Chip label="Achat dépannage" icon="flash-outline" active={form.kind === "depannage"} onPress={() => setForm({ ...form, kind: "depannage" })} />
+              </View>
+            </Field>
 
             <View style={styles.row}>
               <Field label="Date" style={styles.flex1}>
