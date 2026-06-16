@@ -55,6 +55,15 @@ interface FormState {
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
 
+// Ajoute n jours à une date ISO (YYYY-MM-DD). Renvoie "" si l'entrée est vide/invalide.
+const addDaysISO = (iso: string | null | undefined, days: number): string => {
+  if (!iso) return "";
+  const d = new Date(iso + "T00:00:00");
+  if (Number.isNaN(d.getTime())) return "";
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+};
+
 const EMPTY_FORM = (): FormState => ({
   kind: "facture",
   expense_date: todayISO(),
@@ -306,7 +315,8 @@ export function Capture({ profile }: Props) {
         // Ticket / note de frais / autre → dépannage ; facture / BL → facture fournisseur.
         kind: ex.document_type === "facture" || ex.document_type === "bon_de_livraison" ? "facture" : "depannage",
         expense_date: ex.document_date ?? prev.expense_date,
-        due_date: ex.due_date ?? "",
+        // Échéance : celle lue sur la facture, sinon date de facture + 30 jours (délai légal par défaut).
+        due_date: ex.due_date ?? addDaysISO(ex.document_date ?? prev.expense_date, 30),
         supplier_name: ex.supplier_name ?? "",
         category_id: matchedCat?.id ?? "",
         amount_ttc: ex.amount_ttc != null ? String(ex.amount_ttc) : "",

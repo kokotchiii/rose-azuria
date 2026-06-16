@@ -13,7 +13,7 @@ import {
   findDuplicateByInvoiceNumber,
   insertExpenseItems,
 } from "../lib/queries";
-import { fmtEUR, todayISO } from "../lib/format";
+import { fmtEUR, todayISO, addDaysISO } from "../lib/format";
 import { compressImage } from "../lib/compressImage";
 import { sha256Hex } from "../lib/normalize";
 
@@ -130,7 +130,8 @@ export function Capture({ profile }: Props) {
         ...prev,
         kind: ex.document_type === "facture" || ex.document_type === "bon_de_livraison" ? "facture" : "depannage",
         expense_date: ex.document_date ?? prev.expense_date,
-        due_date: ex.due_date ?? "",
+        // Échéance : celle lue sur la facture, sinon date de facture + 30 jours (délai légal par défaut).
+        due_date: ex.due_date ?? addDaysISO(ex.document_date ?? prev.expense_date, 30),
         supplier_name: ex.supplier_name ?? "",
         category_id: matchedCat?.id ?? "",
         amount_ttc: ex.amount_ttc != null ? String(ex.amount_ttc) : "",

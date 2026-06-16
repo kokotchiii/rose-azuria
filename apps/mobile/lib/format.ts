@@ -39,6 +39,16 @@ export function daysAgoISO(n: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+// Ajoute n jours à une date ISO (YYYY-MM-DD) et renvoie une date ISO.
+// Renvoie "" si l'entrée est vide/invalide.
+export function addDaysISO(iso: string | null | undefined, days: number): string {
+  if (!iso) return "";
+  const d = new Date(iso + "T00:00:00");
+  if (Number.isNaN(d.getTime())) return "";
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
 // "2026-06-07" -> "07/06" (étiquette courte pour les axes de graphiques)
 export function fmtDayShort(iso: string): string {
   const [, m, day] = iso.slice(0, 10).split("-");
