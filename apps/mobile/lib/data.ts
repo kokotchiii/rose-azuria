@@ -2,7 +2,9 @@
 // (Réplique l'essentiel de apps/desktop/src/lib — à consolider dans @resto/shared plus tard.)
 
 import { supabase } from "../supabaseClient";
-import type { Expense, Supplier } from "@resto/shared";
+import type {
+  Expense, Supplier, ReconcileExpense, ParsedBankTx, BankTxDirection, BankTxStatus,
+} from "@resto/shared";
 
 // ---------- Dépenses ----------
 export interface ExpenseListItem extends Expense {
@@ -679,4 +681,87 @@ export async function setExpensePaid(expenseId: string, paid: boolean): Promise<
     .update({ paid, paid_at: paid ? new Date().toISOString() : null })
     .eq("id", expenseId);
   if (error) throw error;
+}
+
+// ---------- Rapprochement bancaire ----------
+
+// Dépenses candidates au pointage : non rapprochées, avec nom fournisseur.
+export async function fetchExpensesForReconcile(): Promise<ReconcileExpense[]> {
+  const { data, error } = await supabase
+    .from("expenses")
+    .select("id, expense_date, amount_ttc, supplier_id, invoice_number, note, reconciled, supplier:suppliers(name)")
+    .eq("reconciled", false)
+    .order("expense_date", { ascending: false });
+  if (error) throw error;
+  return ((data ?? []) as unknown as Array<{
+    id: string; expense_date: string; amount_ttc: number; supplier_id: string | null;
+    invoice_number: string | null; note: string | null; supplier: { name: string } | null;
+  }>).map((r) => ({
+    id: r.id,
+    expense_date: r.expense_date,
+    amount_ttc: Number(r.amount_ttc),
+    supplier_id: r.supplier_id,
+    supplier_name: r.supplier?.name ?? null,
+    invoice_number: r.invoice_number,
+    note: r.note,
+  }));
+}
+
+export interface BankTxRow {
+  id: string;
+  tx_date: string;
+  label: string;
+  amount: number;
+  direction: BankTxDirection;
+  status: BankTxStatus;
+  matched_expense_id: string | null;
+}
+
+export async function fetchBankTransactions(): Promise<BankTxRow[]> {
+  const { data, error } = await supabase
+    .from("bank_transactions")
+    .select("id, tx_date, label, amount, direction, status, matched_expense_id")
+    .order("tx_date", { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as unknown as BankTxRow[];
+}
+
+export async function commitBankReconciliation(args: {
+  establishmentId: string;
+  createdBy: string;
+  importBatch: string;
+  rows: Array<{ tx: ParsedBankTx; matchedExpenseId: string | null; status: BankTxStatus }>;
+}): Promise<void> {
+  const inserts = args.rows.map((r) => ({
+    establishment_id:   args.establishmentId,
+    import_batch:       args.importBatch,
+    tx_date:            r.tx.date,
+    label:              r.tx.label,
+    amount:             r.tx.amount,
+    direction:          r.tx.direction,
+    matched_expense_id: r.matchedExpenseId,
+    status:             r.status,
+    raw_json:           r.tx as unknown as Record<string, unknown>,
+    created_by:         args.createdBy,
+  }));
+  if (inserts.length) {
+    const { error } = await supabase.from("bank_transactions").insert(inserts);
+    if (error) throw error;
+  }
+  const matchedIds = args.rows.map((r) => r.matchedExpenseId).filter((x): x is string => !!x);
+  if (matchedIds.length) {
+    const { error } = await supabase.from("expenses").update({ reconciled: true }).in("id", matchedIds);
+    if (error) throw error;
+  }
+}
+
+export async function unmatchBankTransaction(txId: string, expenseId: string | null): Promise<void> {
+  const { error } = await supabase
+    .from("bank_transactions")
+    .update({ status: "unmatched", matched_expense_id: null })
+    .eq("id", txId);
+  if (error) throw error;
+  if (expenseId) {
+    await supabase.from("expenses").update({ reconciled: false }).eq("id", expenseId);
+  }
 }

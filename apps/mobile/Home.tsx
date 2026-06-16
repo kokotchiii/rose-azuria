@@ -18,10 +18,11 @@ import { PlannedScreen } from "./screens/PlannedScreen";
 import { ExportScreen } from "./screens/ExportScreen";
 import { ReimbursementsScreen } from "./screens/ReimbursementsScreen";
 import { EventsScreen } from "./screens/EventsScreen";
+import { ReconcileScreen } from "./screens/ReconcileScreen";
 import { BrandLogo, Screen as ScreenScroll } from "./screens/ui";
 
 type Tab = "capture" | "expenses" | "dashboard" | "more";
-type SubKey = "reimbursements" | "payable" | "events" | "revenues" | "previsionnel" | "planned" | "suppliers" | "products" | "todos" | "export";
+type SubKey = "reimbursements" | "payable" | "reconcile" | "events" | "revenues" | "previsionnel" | "planned" | "suppliers" | "products" | "todos" | "export";
 
 const TABS: { key: Tab; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { key: "capture", label: "Capturer", icon: "camera" },
@@ -33,6 +34,7 @@ const TABS: { key: Tab; label: string; icon: keyof typeof Ionicons.glyphMap }[] 
 const SUBS: { key: SubKey; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { key: "reimbursements", label: "Notes de frais", icon: "wallet-outline" },
   { key: "payable", label: "À payer (échéances)", icon: "card-outline" },
+  { key: "reconcile", label: "Rapprochement bancaire", icon: "git-compare-outline" },
   { key: "events", label: "Événements", icon: "sparkles-outline" },
   { key: "revenues", label: "Recettes", icon: "cash-outline" },
   { key: "previsionnel", label: "Prévisionnel", icon: "trending-up-outline" },
@@ -50,6 +52,7 @@ const TITLES: Record<Tab | SubKey, string> = {
   more: "Plus",
   reimbursements: "Notes de frais",
   payable: "À payer",
+  reconcile: "Rapprochement bancaire",
   events: "Événements",
   revenues: "Recettes",
   previsionnel: "Prévisionnel",
@@ -74,6 +77,7 @@ export function Home({ profile }: { profile: Profile }) {
     // tab === "more"
     if (sub === "reimbursements") return <ReimbursementsScreen />;
     if (sub === "payable") return <PayableScreen />;
+    if (sub === "reconcile") return <ReconcileScreen profile={profile} />;
     if (sub === "events") return <EventsScreen profile={profile} />;
     if (sub === "revenues") return <RevenuesScreen profile={profile} />;
     if (sub === "previsionnel") return <PrevisionnelScreen />;
