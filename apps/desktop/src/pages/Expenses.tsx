@@ -8,7 +8,7 @@ import {
   type ExpenseListItem, type ExpenseItemRow, type ExpenseDupGroup,
 } from "../lib/queries";
 import type { Category, Supplier, Profile } from "@resto/shared";
-import { fmtEUR, fmtDate, startOfMonthISO, todayISO } from "../lib/format";
+import { fmtEUR, fmtDate } from "../lib/format";
 
 type SortKey = "date_desc" | "date_asc" | "amount_desc" | "amount_asc";
 type GroupKey = "none" | "category" | "day" | "supplier";
@@ -20,9 +20,9 @@ export function Expenses() {
   const [rows, setRows]           = useState<ExpenseListItem[]>([]);
   const [loading, setLoading]     = useState(false);
 
-  // Filtres
-  const [from, setFrom]           = useState(startOfMonthISO());
-  const [to, setTo]               = useState(todayISO());
+  // Filtres — par défaut on affiche TOUT (pas de borne basse), comme le mobile.
+  const [from, setFrom]           = useState("");
+  const [to, setTo]               = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [supplierId, setSupplierId] = useState("");
   const [payerId, setPayerId]       = useState("");
