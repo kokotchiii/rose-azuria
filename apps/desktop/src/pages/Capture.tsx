@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { uploadAndClassify, PAYMENT_SOURCES } from "@resto/shared";
-import type { AiExtraction, Category, Supplier, PaymentSource, Profile } from "@resto/shared";
+import type { AiExtraction, Category, Supplier, ExpenseKind, PaymentSource, Profile } from "@resto/shared";
 import { supabase } from "../supabaseClient";
 import {
   fetchCategories,
@@ -22,7 +22,9 @@ interface Props {
 }
 
 interface FormState {
+  kind: ExpenseKind;
   expense_date: string;
+  due_date: string;
   supplier_name: string;
   category_id: string;
   amount_ttc: string;
@@ -38,7 +40,9 @@ interface FormState {
 const AZURIA = "AZURIA";
 
 const EMPTY_FORM = (_profileId: string): FormState => ({
+  kind: "facture",
   expense_date: todayISO(),
+  due_date: "",
   supplier_name: "",
   category_id: "",
   amount_ttc: "",
@@ -124,7 +128,9 @@ export function Capture({ profile }: Props) {
       const matchedCat = categories.find((c) => c.label === ex.suggested_category);
       setForm((prev) => ({
         ...prev,
+        kind: ex.document_type === "facture" || ex.document_type === "bon_de_livraison" ? "facture" : "depannage",
         expense_date: ex.document_date ?? prev.expense_date,
+        due_date: ex.due_date ?? "",
         supplier_name: ex.supplier_name ?? "",
         category_id: matchedCat?.id ?? "",
         amount_ttc: ex.amount_ttc != null ? String(ex.amount_ttc) : "",
@@ -168,7 +174,9 @@ export function Capture({ profile }: Props) {
         .from("expenses")
         .insert({
           establishment_id: profile.establishment_id,
+          kind: form.kind,
           expense_date: form.expense_date,
+          due_date: form.due_date || null,
           supplier_id: supplierId,
           category_id: form.category_id || null,
           amount_ttc: Number(form.amount_ttc),
@@ -246,6 +254,13 @@ export function Capture({ profile }: Props) {
         {/* Colonne droite : formulaire */}
         <div className="capture-right">
           <h2>Détails de la dépense</h2>
+          <label>
+            Type de dépense
+            <select value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value as ExpenseKind })}>
+              <option value="facture">Facture fournisseur</option>
+              <option value="depannage">Achat de dépannage (petit achat / note de frais)</option>
+            </select>
+          </label>
           <div className="grid-2">
             <label>
               Date
@@ -253,6 +268,14 @@ export function Capture({ profile }: Props) {
                 type="date"
                 value={form.expense_date}
                 onChange={(e) => setForm({ ...form, expense_date: e.target.value })}
+              />
+            </label>
+            <label>
+              Échéance (à payer avant)
+              <input
+                type="date"
+                value={form.due_date}
+                onChange={(e) => setForm({ ...form, due_date: e.target.value })}
               />
             </label>
             <label>

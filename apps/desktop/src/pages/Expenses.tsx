@@ -28,6 +28,7 @@ export function Expenses() {
   const [payerId, setPayerId]       = useState("");
   const [minAmount, setMinAmount]   = useState("");
   const [search, setSearch]         = useState("");
+  const [kindFilter, setKindFilter] = useState<"all" | "facture" | "depannage">("all");
 
   const [sortKey, setSortKey] = useState<SortKey>("date_desc");
   const [groupKey, setGroupKey] = useState<GroupKey>("none");
@@ -58,6 +59,7 @@ export function Expenses() {
     const q = search.trim().toLowerCase();
     const min = parseFloat(minAmount) || 0;
     return rows.filter((r) => {
+      if (kindFilter !== "all" && (r.kind ?? "facture") !== kindFilter) return false;
       if (min && Number(r.amount_ttc) < min) return false;
       if (!q) return true;
       const hay = [
@@ -68,7 +70,7 @@ export function Expenses() {
       ].join(" ").toLowerCase();
       return hay.includes(q);
     });
-  }, [rows, search, minAmount]);
+  }, [rows, search, minAmount, kindFilter]);
 
   // Tri
   const sorted = useMemo(() => {
@@ -139,6 +141,14 @@ export function Expenses() {
       <h1>Dépenses</h1>
 
       <div className="filters">
+        <label>
+          Type
+          <select value={kindFilter} onChange={(e) => setKindFilter(e.target.value as "all" | "facture" | "depannage")}>
+            <option value="all">Tout</option>
+            <option value="facture">Factures fournisseurs</option>
+            <option value="depannage">Achats de dépannage</option>
+          </select>
+        </label>
         <label>Du <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
         <label>Au <input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></label>
         <label>
@@ -214,7 +224,7 @@ export function Expenses() {
                 <tbody>
                   {g.items.map((r) => (
                     <tr key={r.id}>
-                      <td><b>{r.supplier?.name ?? "—"}</b></td>
+                      <td><b>{r.supplier?.name ?? "—"}</b>{(r.kind ?? "facture") === "depannage" && <span className="badge" style={{ marginLeft: 6 }}>Dépannage</span>}</td>
                       <td>{fmtDate(r.expense_date)}</td>
                       <td>{r.invoice_number ?? "—"}</td>
                       <td className="num">{fmtEUR(Number(r.amount_ttc))}</td>
