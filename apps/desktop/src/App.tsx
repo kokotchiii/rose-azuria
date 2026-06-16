@@ -10,6 +10,7 @@ import { Todos } from "./pages/Todos";
 import { Export } from "./pages/Export";
 import { Revenues } from "./pages/Revenues";
 import { Payable } from "./pages/Payable";
+import { Reconcile } from "./pages/Reconcile";
 import { Reimbursements } from "./pages/Reimbursements";
 import { Events } from "./pages/Events";
 import { Previsionnel } from "./pages/Previsionnel";
@@ -37,6 +38,7 @@ export function App() {
       {page === "export"    && <Export />}
       {page === "revenues"  && <Revenues profile={profile} />}
       {page === "payable"   && <Payable />}
+      {page === "reconcile" && <Reconcile profile={profile} />}
       {page === "reimbursements" && <Reimbursements />}
       {page === "events"    && <Events profile={profile} />}
       {page === "previsionnel" && <Previsionnel />}

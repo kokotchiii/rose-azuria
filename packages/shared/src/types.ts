@@ -82,6 +82,44 @@ export interface Expense {
   created_at: string;
 }
 
+// ---------------------------------------------------------------------------
+// Rapprochement bancaire
+// ---------------------------------------------------------------------------
+
+export type BankTxDirection = "debit" | "credit";
+export type BankTxStatus = "unmatched" | "matched" | "ignored";
+
+export interface BankTransaction {
+  id: UUID;
+  establishment_id: UUID;
+  import_batch: UUID | null;
+  tx_date: string;            // YYYY-MM-DD
+  label: string;             // libellé brut du relevé
+  amount: number;            // toujours positif (la direction donne le sens)
+  direction: BankTxDirection;
+  matched_expense_id: UUID | null;
+  status: BankTxStatus;
+  raw_json: unknown | null;
+  created_by: UUID | null;
+  created_at: string;
+}
+
+// Une opération telle que renvoyée par l'Edge Function parse-bank-statement.
+export interface ParsedBankTx {
+  date: string;              // YYYY-MM-DD
+  label: string;
+  amount: number;            // positif
+  direction: BankTxDirection;
+}
+
+export interface BankStatementParse {
+  bank_name: string | null;
+  account_holder: string | null;
+  period_start: string | null;
+  period_end: string | null;
+  transactions: ParsedBankTx[];
+}
+
 export interface CashWithdrawal {
   id: UUID;
   establishment_id: UUID;
