@@ -765,3 +765,68 @@ export async function unmatchBankTransaction(txId: string, expenseId: string | n
     await supabase.from("expenses").update({ reconciled: false }).eq("id", expenseId);
   }
 }
+
+// ---------- Galerie photos du restaurant ----------
+
+export interface GalleryPhotoRow {
+  id: string;
+  storage_path: string;
+  caption: string | null;
+  taken_at: string | null;
+  created_at: string;
+  url: string | null; // URL signée temporaire (1 h)
+}
+
+export async function fetchGalleryPhotos(): Promise<GalleryPhotoRow[]> {
+  const { data, error } = await supabase
+    .from("gallery_photos")
+    .select("id, storage_path, caption, taken_at, created_at")
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  const rows = (data ?? []) as Array<Omit<GalleryPhotoRow, "url">>;
+  if (!rows.length) return [];
+  const { data: signed } = await supabase.storage
+    .from("documents")
+    .createSignedUrls(rows.map((r) => r.storage_path), 3600);
+  const urlByPath = new Map<string, string>();
+  (signed ?? []).forEach((s) => { if (s.signedUrl && s.path) urlByPath.set(s.path, s.signedUrl); });
+  return rows.map((r) => ({ ...r, url: urlByPath.get(r.storage_path) ?? null }));
+}
+
+export async function uploadGalleryPhoto(args: {
+  establishmentId: string;
+  createdBy: string;
+  file: Uint8Array | Blob | ArrayBuffer;
+  contentType: string;
+  caption?: string | null;
+}): Promise<void> {
+  const now = new Date();
+  const yyyy = now.getFullYear();
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const rnd = Math.floor(Math.random() * 1e6);
+  const ext = args.contentType === "image/png" ? "png" : "jpg";
+  const path = `${args.establishmentId}/gallery/${yyyy}/${mm}/${now.getTime()}-${rnd}.${ext}`;
+  const { error: upErr } = await supabase.storage
+    .from("documents")
+    .upload(path, args.file, { contentType: args.contentType, upsert: false });
+  if (upErr) throw upErr;
+  const { error } = await supabase.from("gallery_photos").insert({
+    establishment_id: args.establishmentId,
+    storage_path: path,
+    caption: args.caption ?? null,
+    taken_at: now.toISOString(),
+    created_by: args.createdBy,
+  });
+  if (error) throw error;
+}
+
+export async function updateGalleryCaption(id: string, caption: string | null): Promise<void> {
+  const { error } = await supabase.from("gallery_photos").update({ caption }).eq("id", id);
+  if (error) throw error;
+}
+
+export async function deleteGalleryPhoto(id: string, storagePath: string): Promise<void> {
+  const { error } = await supabase.from("gallery_photos").delete().eq("id", id);
+  if (error) throw error;
+  try { await supabase.storage.from("documents").remove([storagePath]); } catch { /* best effort */ }
+}
