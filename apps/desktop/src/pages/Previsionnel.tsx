@@ -29,7 +29,7 @@ import {
 import { fetchRevenues, type RevenueRow } from "../lib/revenues";
 import { fmtEUR, fmtDate } from "../lib/format";
 
-type Mode = "initial" | "live";
+type Mode = "initial" | "live" | "compare";
 
 // --- Réglages (équivalent desktop des settings mobile ; valeurs par défaut). ---
 const TVA_DEFAULT = 10;
@@ -83,6 +83,55 @@ interface Model {
   servicesAn1: number;
 }
 
+interface ModelParams {
+  revenues: RevenueRow[];
+  expenses: ExpenseListItem[];
+  rate: number;
+  svcPerWeek: number;
+  svcPerWeekday: number[];
+  openingDate: string;
+}
+
+// Construit un modèle prévisionnel (business plan "initial" ou "live" temps réel).
+function buildModel(mode: "initial" | "live", p: ModelParams): Model {
+  if (mode === "initial") {
+    const res = genererPrevisionnel([{ date: "2026-01-01", totalHT: CA_SERVICE_CIBLE_HT }], [], HYPOTHESES_DEFAUT);
+    return {
+      pc: res.projectionCA, cr: res.compteResultat, caService: res.caServiceHT.total,
+      cmPct: res.coutMatiereUtilise, cmSource: res.coutMatiereSource, horizons: res.horizons,
+      fractionAn1: 1, servicesAn1: 0,
+    };
+  }
+  // --- mode temps réel ---
+  const h = { ...HYPOTHESES_DEFAUT, servicesParSemaine: p.svcPerWeek };
+  const ventes: VenteService[] = p.revenues.flatMap((r) => {
+    const units = Math.max(1, serviceUnits(r.service));
+    const htPer = revenueHT(r, p.rate) / units;
+    return Array.from({ length: units }, () => ({ date: r.revenue_date, totalHT: htPer }));
+  });
+  const factures: Facture[] = p.expenses.map((e) => ({
+    date: e.expense_date,
+    categorie: mapCategorie(e.category?.label),
+    montantHT: expenseHT(e) ?? Number(e.amount_ttc),
+  }));
+  const caService = caHTParService(ventes, h);
+  const cm = coutMatiereReel(factures, ventes, h);
+  const cmSource: "reel" | "hypothese" = cm.suffisant ? "reel" : "hypothese";
+  const cmPct = cm.suffisant ? cm.ratioGlobal : coutMatiereHypothese(caService, h);
+
+  const regimeAnnuel = caService.total * h.servicesParSemaine * h.semainesParAn;
+  const servicesAn1 = servicesOuvertureAFinAnnee(p.openingDate, p.svcPerWeekday);
+  const fractionAn1 = moisJusquaDecembre(p.openingDate) / 12;
+  const pc: ProjectionCA = {
+    regimeAnnuel,
+    an1: caService.total * servicesAn1,
+    an2: regimeAnnuel,
+    an3: regimeAnnuel * (1 + h.croissanceAn3),
+  };
+  const cr = compteResultat3Ans(pc, cmPct, h, fractionAn1);
+  return { pc, cr, caService: caService.total, cmPct, cmSource, horizons: projeterHorizons(caService.total, h), fractionAn1, servicesAn1 };
+}
+
 export function Previsionnel() {
   const [mode, setMode] = useState<Mode>("live");
   const [revenues, setRevenues] = useState<RevenueRow[]>([]);
@@ -108,49 +157,42 @@ export function Previsionnel() {
     return n > 0 ? n : HYPOTHESES_DEFAUT.servicesParSemaine;
   }, [svcPerWeekday]);
 
-  const model: Model = useMemo(() => {
-    if (mode === "initial") {
-      const res = genererPrevisionnel([{ date: "2026-01-01", totalHT: CA_SERVICE_CIBLE_HT }], [], HYPOTHESES_DEFAUT);
-      return {
-        pc: res.projectionCA, cr: res.compteResultat, caService: res.caServiceHT.total,
-        cmPct: res.coutMatiereUtilise, cmSource: res.coutMatiereSource, horizons: res.horizons,
-        fractionAn1: 1, servicesAn1: 0,
-      };
-    }
-    // --- mode temps réel ---
-    const h = { ...HYPOTHESES_DEFAUT, servicesParSemaine: svcPerWeek };
-    const ventes: VenteService[] = revenues.flatMap((r) => {
-      const units = Math.max(1, serviceUnits(r.service));
-      const htPer = revenueHT(r, rate) / units;
-      return Array.from({ length: units }, () => ({ date: r.revenue_date, totalHT: htPer }));
-    });
-    const factures: Facture[] = expenses.map((e) => ({
-      date: e.expense_date,
-      categorie: mapCategorie(e.category?.label),
-      montantHT: expenseHT(e) ?? Number(e.amount_ttc),
-    }));
-    const caService = caHTParService(ventes, h);
-    const cm = coutMatiereReel(factures, ventes, h);
-    const cmSource: "reel" | "hypothese" = cm.suffisant ? "reel" : "hypothese";
-    const cmPct = cm.suffisant ? cm.ratioGlobal : coutMatiereHypothese(caService, h);
+  const params: ModelParams = useMemo(
+    () => ({ revenues, expenses, rate, svcPerWeek, svcPerWeekday, openingDate }),
+    [revenues, expenses, rate, svcPerWeek, svcPerWeekday, openingDate],
+  );
+  const initialModel = useMemo(() => buildModel("initial", params), [params]);
+  const liveModel = useMemo(() => buildModel("live", params), [params]);
+  const model: Model = mode === "initial" ? initialModel : liveModel;
+  const [caOnly, setCaOnly] = useState(false);
 
-    const regimeAnnuel = caService.total * h.servicesParSemaine * h.semainesParAn;
-    const servicesAn1 = servicesOuvertureAFinAnnee(openingDate, svcPerWeekday);
-    const fractionAn1 = moisJusquaDecembre(openingDate) / 12;
-    const pc: ProjectionCA = {
-      regimeAnnuel,
-      an1: caService.total * servicesAn1,
-      an2: regimeAnnuel,
-      an3: regimeAnnuel * (1 + h.croissanceAn3),
+  // Données de comparaison Réel vs Budget, sur deux bases comparables :
+  //  - "premiere" : 1re année partielle (de l'ouverture en juin au 31/12), budget
+  //    proraté sur le MÊME nombre de services → comparaison juste du démarrage.
+  //  - "pleine"   : année de croisière (12 mois pleins).
+  const compare = useMemo(() => {
+    const servicesAn1 = liveModel.servicesAn1;
+    const fractionAn1 = liveModel.fractionAn1;
+    // Budget « 1re année » = CA/service cible × services réellement planifiés juin→déc,
+    // avec charges fixes proratées sur la même fraction d'année.
+    const budgetPcPartial: ProjectionCA = {
+      regimeAnnuel: initialModel.pc.regimeAnnuel,
+      an1: CA_SERVICE_CIBLE_HT * servicesAn1,
+      an2: initialModel.pc.an2,
+      an3: initialModel.pc.an3,
     };
-    const cr = compteResultat3Ans(pc, cmPct, h, fractionAn1);
-    return { pc, cr, caService: caService.total, cmPct, cmSource, horizons: projeterHorizons(caService.total, h), fractionAn1, servicesAn1 };
-  }, [mode, revenues, expenses, rate, svcPerWeek, svcPerWeekday, openingDate]);
+    const budgetCrPartial = compteResultat3Ans(budgetPcPartial, initialModel.cmPct, HYPOTHESES_DEFAUT, fractionAn1);
+    return {
+      premiere: { budget: budgetCrPartial.an1, reel: liveModel.cr.an1 },
+      pleine:   { budget: initialModel.cr.an2, reel: liveModel.cr.an2 },
+      servicesAn1,
+    };
+  }, [initialModel, liveModel]);
 
   if (loading) return <div className="previsionnel-page"><h1>Prévisionnel</h1><p className="muted">Chargement…</p></div>;
 
   const live = mode === "live";
-  const noData = live && revenues.length === 0;
+  const noData = (live || mode === "compare") && revenues.length === 0;
   const reel = model.cmSource === "reel";
   const moisAn1 = Math.round(model.fractionAn1 * 12);
 
@@ -165,12 +207,17 @@ export function Previsionnel() {
         <button className={`tab ${mode === "live" ? "active" : ""}`} onClick={() => setMode("live")}>
           Temps réel
         </button>
+        <button className={`tab ${mode === "compare" ? "active" : ""}`} onClick={() => setMode("compare")}>
+          Réel vs Budget
+        </button>
       </div>
 
       {noData ? (
         <p className="muted">
-          Aucune recette saisie. Vois le « Prévisionnel initial », ou saisis des recettes pour le temps réel.
+          Aucune recette saisie. Vois le « Prévisionnel initial », ou saisis des recettes pour comparer au budget.
         </p>
+      ) : mode === "compare" ? (
+        <CompareView compare={compare} moisAn1={moisAn1} openingDate={openingDate} caOnly={caOnly} onToggleCaOnly={setCaOnly} />
       ) : (
         <>
           {/* Base de calcul */}
@@ -269,5 +316,113 @@ function PnlTable({ cr, live, moisAn1 }: { cr: CompteResultat3Ans; live: boolean
         ))}
       </tbody>
     </table>
+  );
+}
+
+// Comparaison Réel projeté vs Budget. Deux bases comparables :
+//  - "premiere" : 1re année partielle (juin → 31/12), budget proraté même période.
+//  - "pleine"   : année de croisière (12 mois pleins).
+interface CompareData {
+  premiere: { budget: AnneeResultat; reel: AnneeResultat };
+  pleine: { budget: AnneeResultat; reel: AnneeResultat };
+  servicesAn1: number;
+}
+
+function CompareView({
+  compare, moisAn1, openingDate, caOnly, onToggleCaOnly,
+}: {
+  compare: CompareData; moisAn1: number; openingDate: string;
+  caOnly: boolean; onToggleCaOnly: (v: boolean) => void;
+}) {
+  const [basis, setBasis] = useState<"premiere" | "pleine">("premiere");
+  const { budget, reel } = basis === "premiere" ? compare.premiere : compare.pleine;
+  const year = openingDate.slice(0, 4);
+
+  const allRows: { label: string; pick: (a: AnneeResultat) => number; strong?: boolean; cost?: boolean }[] = [
+    { label: "CA (HT)", pick: (a) => a.ca, strong: true },
+    { label: "Coût matière", pick: (a) => a.achats, cost: true },
+    { label: "Marge brute", pick: (a) => a.margeBrute },
+    { label: "Charges externes", pick: (a) => a.chargesExternes, cost: true },
+    { label: "Personnel", pick: (a) => a.personnel, cost: true },
+    { label: "EBE", pick: (a) => a.ebe },
+    { label: "Résultat net", pick: (a) => a.resultatNet, strong: true },
+  ];
+  const rows = caOnly ? allRows.filter((r) => r.label === "CA (HT)") : allRows;
+
+  const caBudget = budget.ca;
+  const caReel = reel.ca;
+  const caEcart = caReel - caBudget;
+  const caPct = caBudget ? Math.round((caReel / caBudget) * 100) : 0;
+
+  const premiereLabel = `1re année (juin → déc ${year}, ${moisAn1} mois)`;
+  const budgetLabel = basis === "premiere" ? `Budget proraté (${moisAn1} mois)` : "CA budget (an plein)";
+
+  return (
+    <>
+      <div className="card" style={{ marginBottom: "1.25rem" }}>
+        <div className="tabs" style={{ marginBottom: "0.75rem" }}>
+          <button className={`tab ${basis === "premiere" ? "active" : ""}`} onClick={() => setBasis("premiere")}>
+            {premiereLabel}
+          </button>
+          <button className={`tab ${basis === "pleine" ? "active" : ""}`} onClick={() => setBasis("pleine")}>
+            Année pleine (croisière)
+          </button>
+        </div>
+        <div className="supplier-kpis">
+          <div><div className="muted">{budgetLabel}</div><b>{fmt0(caBudget)}</b></div>
+          <div><div className="muted">CA réel projeté</div><b>{fmt0(caReel)}</b></div>
+          <div>
+            <div className="muted">Écart</div>
+            <b style={{ color: caEcart >= 0 ? "var(--primary)" : "var(--error)" }}>
+              {caEcart >= 0 ? "+" : ""}{fmt0(caEcart)} ({caPct} %)
+            </b>
+          </div>
+        </div>
+        <div className="hint">
+          {basis === "premiere"
+            ? `Ta 1re année commence en juin : ${compare.servicesAn1} services planifiés jusqu'au 31/12. Le budget est proraté sur la même période pour une comparaison juste.`
+            : "Rythme de croisière sur 12 mois pleins. Budget An1 de référence du business plan : ~125 175 € (1re année avec montée en charge)."}
+        </div>
+        <label className="toggle-line" style={{ display: "inline-flex", alignItems: "center", gap: 8, marginTop: 10 }}>
+          <input type="checkbox" checked={caOnly} onChange={(e) => onToggleCaOnly(e.target.checked)} />
+          CA seulement (sans la partie achats / coûts)
+        </label>
+      </div>
+
+      <div className="table-wrap" style={{ marginBottom: "1.25rem" }}>
+        <table className="exp-table">
+          <thead>
+            <tr>
+              <th>€ (année pleine)</th>
+              <th className="num">Budget</th>
+              <th className="num">Réel projeté</th>
+              <th className="num">Écart</th>
+              <th className="num">% du budget</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => {
+              const b = r.pick(budget);
+              const v = r.pick(reel);
+              const ecart = v - b;
+              const p = b ? Math.round((v / b) * 100) : 0;
+              // Pour un coût, dépasser le budget est défavorable → on inverse la couleur.
+              const favorable = r.cost ? ecart <= 0 : ecart >= 0;
+              return (
+                <tr key={r.label}>
+                  <td>{r.strong ? <b>{r.label}</b> : r.label}</td>
+                  <td className="num">{r.strong ? <b>{fmt0(b)}</b> : fmt0(b)}</td>
+                  <td className="num">{r.strong ? <b>{fmt0(v)}</b> : fmt0(v)}</td>
+                  <td className="num" style={{ color: favorable ? "var(--primary)" : "var(--error)" }}>
+                    {ecart >= 0 ? "+" : ""}{fmt0(ecart)}
+                  </td>
+                  <td className="num">{p} %</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }
