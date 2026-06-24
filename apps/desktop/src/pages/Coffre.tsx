@@ -25,6 +25,7 @@ const OVERRIDE_LABEL: Record<string, string> = {
   comptable: "Comptable annuel (€)", eauElecGaz: "Énergie annuelle (€)",
   pretFonds: "Prêt fonds (€)", tauxFonds: "Taux prêt fonds", moisFonds: "Durée prêt fonds (mois)",
   pretMateriel: "Prêt matériel (€)", tauxMat: "Taux prêt matériel", moisMat: "Durée prêt matériel (mois)",
+  serveuseNetMensuel: "Salaire net mensuel salle/cuisine (€)", chefBrutMensuel: "Salaire brut mensuel chef/cadre (€)",
 };
 
 export function Coffre({ profile }: Props) {

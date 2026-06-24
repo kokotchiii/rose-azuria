@@ -39,22 +39,22 @@ function bytesToBase64(bytes: Uint8Array): string {
   let b = ""; for (let i = 0; i < bytes.byteLength; i++) b += String.fromCharCode(bytes[i]); return btoa(b);
 }
 
-const PROMPT = `Tu es un assistant qui lit un DOCUMENT IMPORTANT d'un restaurant français (bail commercial, offre/contrat de PRÊT bancaire, attestation d'ASSURANCE, honoraires d'expert-comptable ou d'avocat, statuts, Kbis, bilan comptable, devis…) et en extrait les informations utiles au budget prévisionnel.
+const PROMPT = `Tu es un assistant qui lit un DOCUMENT IMPORTANT d'un restaurant français (bail commercial, offre/contrat de PRÊT bancaire, attestation/contrat d'ASSURANCE, CONTRAT DE TRAVAIL, honoraires d'expert-comptable ou d'avocat, statuts, Kbis, bilan comptable, devis…) et en extrait les informations utiles au budget prévisionnel.
 
 Réponds UNIQUEMENT par un objet JSON valide (pas de texte, pas de markdown), schéma EXACT :
 
 {
-  "doc_type": "bail" | "pret_bancaire" | "assurance" | "honoraires" | "statuts" | "kbis" | "bilan" | "devis" | "autre",
-  "title": string,                 // titre court et parlant (ex: "Bail commercial 12 rue X", "Prêt BNP fonds de commerce")
+  "doc_type": "bail" | "pret_bancaire" | "assurance" | "contrat_travail" | "honoraires" | "statuts" | "kbis" | "bilan" | "devis" | "autre",
+  "title": string,                 // titre court et parlant (ex: "Bail commercial 12 rue X", "Contrat de travail serveur·se", "Attestation MAIF")
   "category": "juridique" | "banque" | "comptable" | "bail" | "assurance" | "rh" | "autre",
   "summary": string,               // 2-4 phrases résumant le document et ses points clés
-  "parties": string[] | null,      // parties au contrat
-  "dates": string[] | null,        // dates clés (signature, échéance, début/fin) au format lisible
+  "parties": string[] | null,      // parties au contrat (bailleur/preneur, employeur/salarié, assureur…)
+  "dates": string[] | null,        // dates clés (signature, échéance, début/fin, période d'essai…) au format lisible
   "proposed_overrides": {          // UNIQUEMENT les clés que tu peux remplir avec certitude (sinon omets-les)
     "loyerMensuelHC": number,      // loyer mensuel HORS CHARGES (bail)
     "chargesLocMensuel": number,   // charges locatives mensuelles (bail)
     "indexationLoyer": number,     // indexation annuelle en décimal (ex 0.02)
-    "assurancePro": number,        // prime d'assurance ANNUELLE
+    "assurancePro": number,        // prime d'assurance ANNUELLE (si mensuelle, ×12)
     "comptable": number,           // honoraires comptable ANNUELS
     "eauElecGaz": number,          // énergie/fluides ANNUEL
     "pretFonds": number,           // capital emprunté (prêt fonds de commerce)
@@ -62,7 +62,9 @@ Réponds UNIQUEMENT par un objet JSON valide (pas de texte, pas de markdown), sc
     "moisFonds": number,           // durée en MOIS
     "pretMateriel": number,        // capital (prêt matériel)
     "tauxMat": number,
-    "moisMat": number
+    "moisMat": number,
+    "serveuseNetMensuel": number,  // salaire NET mensuel d'un employé de salle/cuisine (contrat de travail)
+    "chefBrutMensuel": number      // salaire BRUT mensuel du chef / cadre (contrat de travail)
   }
 }
 
@@ -70,6 +72,8 @@ Règles :
 - Mets dans "proposed_overrides" SEULEMENT les valeurs réellement présentes dans le document, sinon n'inclus pas la clé (objet vide {} si rien).
 - Pour un PRÊT : range-le dans pretFonds/tauxFonds/moisFonds si c'est un prêt fonds de commerce/création, sinon pretMateriel/tauxMat/moisMat. Convertis un taux en décimal (4,5% → 0.045), une durée en MOIS (7 ans → 84).
 - Pour un BAIL : loyer mensuel hors charges, charges, indexation si indiquée.
+- Pour un CONTRAT DE TRAVAIL : extrais le salaire mensuel. Si c'est un poste de salle/cuisine, mets le NET dans serveuseNetMensuel ; si c'est le chef/cadre, mets le BRUT dans chefBrutMensuel. Indique le poste dans le résumé.
+- Pour une ASSURANCE : prime ANNUELLE (multiplie par 12 si la prime est mensuelle).
 - Montants en euros, en number (pas de "€", point décimal). Si illisible : omets la clé.
 - Le document peut être pivoté/multi-pages : lis tout.`;
 
@@ -77,7 +81,7 @@ function validate(raw: unknown) {
   if (typeof raw !== "object" || raw === null) throw new Error("ai_output_not_object");
   const o = raw as Record<string, unknown>;
   const cats = ["juridique", "banque", "comptable", "bail", "assurance", "rh", "autre"];
-  const types = ["bail", "pret_bancaire", "assurance", "honoraires", "statuts", "kbis", "bilan", "devis", "autre"];
+  const types = ["bail", "pret_bancaire", "assurance", "contrat_travail", "honoraires", "statuts", "kbis", "bilan", "devis", "autre"];
   if (typeof o.doc_type !== "string" || !types.includes(o.doc_type)) o.doc_type = "autre";
   if (typeof o.category !== "string" || !cats.includes(o.category)) o.category = "autre";
   if (typeof o.title !== "string" || !o.title) o.title = "Document";
