@@ -22,6 +22,7 @@ import {
 import {
   expenseHT,
   fetchExpenses,
+  fetchPrevisionnelOverrides,
   revenueHT,
   serviceUnits,
   type ExpenseListItem,
@@ -90,12 +91,13 @@ interface ModelParams {
   svcPerWeek: number;
   svcPerWeekday: number[];
   openingDate: string;
+  hyp: typeof HYPOTHESES_DEFAUT;   // hypothèses (défaut + overrides depuis le coffre)
 }
 
 // Construit un modèle prévisionnel (business plan "initial" ou "live" temps réel).
 function buildModel(mode: "initial" | "live", p: ModelParams): Model {
   if (mode === "initial") {
-    const res = genererPrevisionnel([{ date: "2026-01-01", totalHT: CA_SERVICE_CIBLE_HT }], [], HYPOTHESES_DEFAUT);
+    const res = genererPrevisionnel([{ date: "2026-01-01", totalHT: CA_SERVICE_CIBLE_HT }], [], p.hyp);
     return {
       pc: res.projectionCA, cr: res.compteResultat, caService: res.caServiceHT.total,
       cmPct: res.coutMatiereUtilise, cmSource: res.coutMatiereSource, horizons: res.horizons,
@@ -103,7 +105,7 @@ function buildModel(mode: "initial" | "live", p: ModelParams): Model {
     };
   }
   // --- mode temps réel ---
-  const h = { ...HYPOTHESES_DEFAUT, servicesParSemaine: p.svcPerWeek };
+  const h = { ...p.hyp, servicesParSemaine: p.svcPerWeek };
   const ventes: VenteService[] = p.revenues.flatMap((r) => {
     const units = Math.max(1, serviceUnits(r.service));
     const htPer = revenueHT(r, p.rate) / units;
@@ -136,6 +138,7 @@ export function Previsionnel() {
   const [mode, setMode] = useState<Mode>("live");
   const [revenues, setRevenues] = useState<RevenueRow[]>([]);
   const [expenses, setExpenses] = useState<ExpenseListItem[]>([]);
+  const [overrides, setOverrides] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
 
   const rate = TVA_DEFAULT;
@@ -143,10 +146,11 @@ export function Previsionnel() {
   const svcPerWeekday = DEFAULT_SVC_PER_WEEKDAY;
 
   useEffect(() => {
-    Promise.all([fetchRevenues(), fetchExpenses({})])
-      .then(([rev, exp]) => {
+    Promise.all([fetchRevenues(), fetchExpenses({}), fetchPrevisionnelOverrides().catch(() => ({}))])
+      .then(([rev, exp, ov]) => {
         setRevenues(rev);
         setExpenses(exp);
+        setOverrides(ov as Record<string, number>);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -157,9 +161,10 @@ export function Previsionnel() {
     return n > 0 ? n : HYPOTHESES_DEFAUT.servicesParSemaine;
   }, [svcPerWeekday]);
 
+  const hyp = useMemo(() => ({ ...HYPOTHESES_DEFAUT, ...overrides }), [overrides]);
   const params: ModelParams = useMemo(
-    () => ({ revenues, expenses, rate, svcPerWeek, svcPerWeekday, openingDate }),
-    [revenues, expenses, rate, svcPerWeek, svcPerWeekday, openingDate],
+    () => ({ revenues, expenses, rate, svcPerWeek, svcPerWeekday, openingDate, hyp }),
+    [revenues, expenses, rate, svcPerWeek, svcPerWeekday, openingDate, hyp],
   );
   const initialModel = useMemo(() => buildModel("initial", params), [params]);
   const liveModel = useMemo(() => buildModel("live", params), [params]);

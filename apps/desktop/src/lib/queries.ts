@@ -816,6 +816,80 @@ export async function commitBankReconciliation(args: {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Coffre à documents + réglages prévisionnel (overrides)
+// ---------------------------------------------------------------------------
+
+export interface LibraryDoc {
+  id: string;
+  title: string;
+  category: string;
+  doc_type: string | null;
+  storage_path: string;
+  file_type: string | null;
+  summary: string | null;
+  extracted: unknown | null;
+  created_at: string;
+}
+
+export async function fetchLibraryDocuments(): Promise<LibraryDoc[]> {
+  const { data, error } = await supabase
+    .from("library_documents")
+    .select("id, title, category, doc_type, storage_path, file_type, summary, extracted, created_at")
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as unknown as LibraryDoc[];
+}
+
+export async function insertLibraryDocument(args: {
+  establishmentId: string; createdBy: string;
+  title: string; category: string; docType: string | null;
+  storagePath: string; fileType: string | null;
+  summary: string | null; extracted: unknown;
+}): Promise<void> {
+  const { error } = await supabase.from("library_documents").insert({
+    establishment_id: args.establishmentId,
+    title: args.title, category: args.category, doc_type: args.docType,
+    storage_path: args.storagePath, file_type: args.fileType,
+    summary: args.summary, extracted: args.extracted, created_by: args.createdBy,
+  });
+  if (error) throw error;
+}
+
+export async function deleteLibraryDocument(id: string, storagePath: string): Promise<void> {
+  const { error } = await supabase.from("library_documents").delete().eq("id", id);
+  if (error) throw error;
+  try { await supabase.storage.from("documents").remove([storagePath]); } catch { /* best effort */ }
+}
+
+export async function getLibrarySignedUrl(storagePath: string): Promise<string | null> {
+  const { data } = await supabase.storage.from("documents").createSignedUrl(storagePath, 3600);
+  return data?.signedUrl ?? null;
+}
+
+// Overrides du prévisionnel (chiffres injectés depuis les documents).
+export async function fetchPrevisionnelOverrides(): Promise<Record<string, number>> {
+  const { data, error } = await supabase
+    .from("previsionnel_settings")
+    .select("overrides")
+    .maybeSingle();
+  if (error) throw error;
+  return ((data as { overrides?: Record<string, number> } | null)?.overrides ?? {});
+}
+
+// Fusionne de nouveaux overrides (ex. extraits d'un document) avec l'existant.
+export async function applyPrevisionnelOverrides(
+  establishmentId: string, patch: Record<string, number>,
+): Promise<Record<string, number>> {
+  const current = await fetchPrevisionnelOverrides();
+  const merged = { ...current, ...patch };
+  const { error } = await supabase
+    .from("previsionnel_settings")
+    .upsert({ establishment_id: establishmentId, overrides: merged, updated_at: new Date().toISOString() }, { onConflict: "establishment_id" });
+  if (error) throw error;
+  return merged;
+}
+
 // Annule le pointage d'une opération : la dépense redevient non pointée et NON payée.
 export async function unmatchBankTransaction(txId: string, expenseId: string | null): Promise<void> {
   const { error } = await supabase
