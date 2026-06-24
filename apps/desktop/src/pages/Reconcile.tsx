@@ -117,7 +117,7 @@ export function Reconcile({ profile }: Props) {
         importBatch: batch,
         rows,
       });
-      setInfo(`Import enregistré : ${matchedCount} dépense(s) pointée(s).`);
+      setInfo(`Import enregistré : ${matchedCount} facture(s) marquée(s) payée(s).`);
       setDebits([]); setCredits([]); setUnmatchedExpenses([]); setParsedMeta(null);
       loadHistory();
     } catch (err: unknown) {
@@ -148,8 +148,9 @@ export function Reconcile({ profile }: Props) {
     <div className="page">
       <h1>Rapprochement bancaire</h1>
       <p className="muted">
-        Importe ton relevé bancaire (PDF). L'IA en lit les opérations et les pointe contre tes dépenses :
-        montant identique + date proche + libellé reconnu.
+        Importe ton relevé bancaire (PDF). L'IA en lit les opérations et les pointe contre tes dépenses
+        (montant identique + date proche + libellé reconnu). Une facture rapprochée à un débit est
+        considérée <b>payée</b> ; une facture sans débit reste <b>non payée</b>.
       </p>
 
       <div className="card" style={{ marginBottom: "1rem" }}>
@@ -214,7 +215,7 @@ export function Reconcile({ profile }: Props) {
           {/* Dépenses sans débit */}
           {unmatchedExpenses.length > 0 && (
             <details style={{ marginTop: 12 }} open>
-              <summary className="muted">Dépenses non rapprochées ({unmatchedExpenses.length}) — pas (encore) débitées, payées en espèces, ou hors période</summary>
+              <summary className="muted">Factures NON payées ({unmatchedExpenses.length}) — aucun débit trouvé (pas encore réglées, payées en espèces, ou hors période)</summary>
               <table>
                 <tbody>
                   {unmatchedExpenses.slice(0, 100).map((ex) => (
@@ -230,7 +231,7 @@ export function Reconcile({ profile }: Props) {
           )}
 
           <button className="primary big" disabled={busy} onClick={onSave}>
-            Enregistrer le pointage ({matchedCount} rapprochée{matchedCount > 1 ? "s" : ""})
+            Valider : marquer {matchedCount} facture{matchedCount > 1 ? "s" : ""} payée{matchedCount > 1 ? "s" : ""}
           </button>
         </>
       )}

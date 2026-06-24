@@ -795,15 +795,19 @@ export async function commitBankReconciliation(args: {
     const { error } = await supabase.from("bank_transactions").insert(inserts);
     if (error) throw error;
   }
-  // Marque pointées les dépenses rapprochées.
-  const matchedIds = args.rows.map((r) => r.matchedExpenseId).filter((x): x is string => !!x);
-  if (matchedIds.length) {
-    const { error } = await supabase.from("expenses").update({ reconciled: true }).in("id", matchedIds);
+  // Marque les dépenses rapprochées comme pointées ET payées : le débit prouve
+  // le paiement. paid_at = date du débit. Elles sortent ainsi de « À payer ».
+  for (const r of args.rows) {
+    if (!r.matchedExpenseId) continue;
+    const { error } = await supabase
+      .from("expenses")
+      .update({ reconciled: true, paid: true, paid_at: r.tx.date })
+      .eq("id", r.matchedExpenseId);
     if (error) throw error;
   }
 }
 
-// Annule le pointage d'une opération (et dé-rapproche la dépense liée).
+// Annule le pointage d'une opération : la dépense redevient non pointée et NON payée.
 export async function unmatchBankTransaction(txId: string, expenseId: string | null): Promise<void> {
   const { error } = await supabase
     .from("bank_transactions")
@@ -811,6 +815,6 @@ export async function unmatchBankTransaction(txId: string, expenseId: string | n
     .eq("id", txId);
   if (error) throw error;
   if (expenseId) {
-    await supabase.from("expenses").update({ reconciled: false }).eq("id", expenseId);
+    await supabase.from("expenses").update({ reconciled: false, paid: false, paid_at: null }).eq("id", expenseId);
   }
 }
