@@ -180,6 +180,8 @@ export function Capture({ profile }: Props) {
       const paidOnSpot = form.payment_source !== "virement";
       const isPaid = form.kind === "depannage" ? true : paidOnSpot;
       const dueDate = form.kind === "facture" && !isPaid ? (form.due_date || null) : null;
+      // Un payeur PERSO (≠ société) a avancé l'argent => à rembourser (note de frais).
+      const isReimbursable = payerId !== null;
 
       const { data: inserted, error } = await supabase
         .from("expenses")
@@ -190,6 +192,7 @@ export function Capture({ profile }: Props) {
           due_date: dueDate,
           paid: isPaid,
           paid_at: isPaid ? form.expense_date : null,
+          reimbursable: isReimbursable,
           supplier_id: supplierId,
           category_id: form.category_id || null,
           amount_ttc: Number(form.amount_ttc),

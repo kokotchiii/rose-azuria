@@ -360,9 +360,12 @@ export function Capture({ profile }: Props) {
 
       // Payé sur le coup (espèces / CB) ou dépannage => déjà réglé, pas d'échéance.
       // Seule une FACTURE réglée par VIREMENT reste "à payer".
+      const payerId = form.payer_id === AZURIA ? null : form.payer_id;
       const paidOnSpot = form.payment_source !== "virement";
       const isPaid = form.kind === "depannage" ? true : paidOnSpot;
       const dueDate = form.kind === "facture" && !isPaid ? (form.due_date || null) : null;
+      // Un payeur PERSO (≠ société) a avancé l'argent => à rembourser (note de frais).
+      const isReimbursable = payerId !== null;
 
       const { error: insErr } = await supabase.from("expenses").insert({
         establishment_id: profile.establishment_id,
@@ -371,12 +374,13 @@ export function Capture({ profile }: Props) {
         due_date: dueDate,
         paid: isPaid,
         paid_at: isPaid ? form.expense_date : null,
+        reimbursable: isReimbursable,
         supplier_id: supplierId,
         category_id: form.category_id || null,
         amount_ttc: Number(form.amount_ttc),
         tva_rate: form.tva_rate ? Number(form.tva_rate) : null,
         amount_tva: form.amount_tva ? Number(form.amount_tva) : null,
-        payer_id: form.payer_id === AZURIA ? null : form.payer_id,
+        payer_id: payerId,
         payment_source: form.payment_source,
         invoice_number: form.invoice_number || null,
         document_id: documentId,

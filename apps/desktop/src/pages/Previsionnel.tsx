@@ -33,7 +33,7 @@ type Mode = "initial" | "live" | "compare";
 
 // --- Réglages (équivalent desktop des settings mobile ; valeurs par défaut). ---
 const TVA_DEFAULT = 10;
-const DEFAULT_OPENING_DATE = "2026-06-02";
+const DEFAULT_OPENING_DATE = "2026-06-01";
 // midi+soir lun→ven, samedi soir, dimanche fermé = 11 services / semaine.
 const DEFAULT_SVC_PER_WEEKDAY = [2, 2, 2, 2, 2, 1, 0];
 

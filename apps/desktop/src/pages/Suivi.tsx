@@ -168,8 +168,8 @@ export function Suivi() {
   const pctProj = s.objective ? s.projectedCA / s.objective : 0;
   const pctReal = s.objective ? s.realizedCA / s.objective : 0;
   const cls = pctClass(pctProj);
-  const ticketMoyen = s.tables > 0 ? s.realizedCA / s.tables : 0;
-  const couvertMoyen = s.covers > 0 ? s.realizedCA / s.covers : 0;
+  const ticketMoyen = s.covers > 0 ? s.realizedCA / s.covers : 0;          // CA ÷ couverts
+  const couvertsParService = s.realizedUnits > 0 ? s.covers / s.realizedUnits : 0; // nb couverts / service
   const verdict = cls === "ok" ? "Objectif en vue 👍" : cls === "warn" ? "Tout près de l'objectif" : "En retard sur l'objectif";
 
   const annualPct = annual.budget ? annual.projete / annual.budget : 0;
@@ -208,9 +208,9 @@ export function Suivi() {
         <div className={`badge ${cls === "ok" ? "ok" : cls === "warn" ? "warn" : "bad"}`}>{verdict}</div>
 
         <div className="suivi-kpis">
-          <div><div className="muted">Ticket moyen</div><b>{ticketMoyen > 0 ? fmtEUR(ticketMoyen) : "—"}</b></div>
-          <div><div className="muted">Couvert moyen</div><b>{couvertMoyen > 0 ? fmtEUR(couvertMoyen) : "—"}</b></div>
-          <div><div className="muted">Couverts</div><b>{s.covers || "—"}</b></div>
+          <div><div className="muted">Ticket moyen (CA ÷ couverts)</div><b>{ticketMoyen > 0 ? fmtEUR(ticketMoyen) : "—"}</b></div>
+          <div><div className="muted">Couverts moyens / service</div><b>{couvertsParService > 0 ? Math.round(couvertsParService) : "—"}</b></div>
+          <div><div className="muted">Couverts (total semaine)</div><b>{s.covers || "—"}</b></div>
           <div><div className="muted">Services faits</div><b>{s.realizedUnits} / {s.plannedUnits}</b></div>
         </div>
       </div>
@@ -232,7 +232,7 @@ export function Suivi() {
           <tbody>
             {current.days.map((d) => {
               const obj = d.plannedUnits * OBJ_TTC_PER_SERVICE;
-              const tm = d.tables > 0 ? d.ca / d.tables : 0;
+              const tm = d.covers > 0 ? d.ca / d.covers : 0;
               const p = obj ? d.ca / obj : 0;
               const closed = d.plannedUnits === 0;
               return (
@@ -288,7 +288,7 @@ export function Suivi() {
               <tbody>
                 {pastWeeks.map((w) => {
                   const p = w.objective ? w.realizedCA / w.objective : 0;
-                  const tm = w.tables > 0 ? w.realizedCA / w.tables : 0;
+                  const tm = w.covers > 0 ? w.realizedCA / w.covers : 0;
                   return (
                     <tr key={w.mondayISO}>
                       <td>{w.mondayISO}</td>
