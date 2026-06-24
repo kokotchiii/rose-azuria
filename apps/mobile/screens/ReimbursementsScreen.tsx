@@ -5,6 +5,7 @@ import {
   fetchPendingReimbursements,
   fetchReimbursedHistory,
   setExpenseReimbursed,
+  setExpenseJustifVerified,
   settlePayer,
   type PayerReimbursement,
 } from "../lib/data";
@@ -56,7 +57,19 @@ export function ReimbursementsScreen() {
     }
   }
 
+  async function onToggleVerified(expenseId: string, verified: boolean) {
+    setBusy(expenseId);
+    try {
+      await setExpenseJustifVerified(expenseId, verified);
+      await load(tab);
+    } catch {
+      setBusy(null);
+    }
+  }
+
   const grandTotal = groups.reduce((s, g) => s + g.total, 0);
+  const allItems = groups.flatMap((g) => g.items);
+  const verifiedCount = allItems.filter((e) => e.justif_verified ?? false).length;
 
   return (
     <Screen>
@@ -80,6 +93,7 @@ export function ReimbursementsScreen() {
             <Card style={styles.totalCard}>
               <Text style={styles.totalLabel}>Total à rembourser</Text>
               <Text style={styles.totalValue}>{fmtEUR(grandTotal)}</Text>
+              <Text style={styles.totalLabel}>Justificatifs vérifiés : {verifiedCount}/{allItems.length}</Text>
             </Card>
           )}
 
@@ -108,6 +122,22 @@ export function ReimbursementsScreen() {
                     <Text style={styles.itemMeta}>
                       {fmtDate(e.expense_date)} · {e.category?.label ?? "—"}
                     </Text>
+                    <Pressable
+                      onPress={() => onToggleVerified(e.id, !(e.justif_verified ?? false))}
+                      disabled={busy !== null}
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked: e.justif_verified ?? false }}
+                      style={({ pressed }) => [styles.verifyChip, pressed && { opacity: 0.7 }]}
+                    >
+                      <Ionicons
+                        name={(e.justif_verified ?? false) ? "checkmark-circle" : "ellipse-outline"}
+                        size={16}
+                        color={(e.justif_verified ?? false) ? colors.success : colors.textMuted}
+                      />
+                      <Text style={[styles.verifyText, (e.justif_verified ?? false) && { color: colors.success }]}>
+                        {(e.justif_verified ?? false) ? "Justif. vérifié" : "Justif. à vérifier"}
+                      </Text>
+                    </Pressable>
                   </View>
                   <Text style={styles.itemAmount}>{fmtEUR(Number(e.amount_ttc))}</Text>
 
@@ -186,6 +216,8 @@ const styles = StyleSheet.create({
   item: { flexDirection: "row", alignItems: "center", gap: space.sm, paddingVertical: 6 },
   itemSupplier: { ...type.body, color: colors.text },
   itemMeta: { ...type.small, color: colors.textMuted },
+  verifyChip: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4 },
+  verifyText: { ...type.small, color: colors.textMuted, fontSize: 12 },
   itemAmount: { ...type.title, color: colors.text },
   itemBtn: { minWidth: 36, minHeight: 36, alignItems: "center", justifyContent: "center" },
   undoBtn: {

@@ -6,6 +6,7 @@ import {
   fetchPendingReimbursements,
   fetchReimbursedHistory,
   setExpenseReimbursed,
+  setExpenseJustifVerified,
   settlePayer,
   type PayerReimbursement,
 } from "../lib/queries";
@@ -53,7 +54,19 @@ export function Reimbursements() {
     }
   }
 
+  async function onToggleVerified(expenseId: string, verified: boolean) {
+    setBusy(expenseId);
+    try {
+      await setExpenseJustifVerified(expenseId, verified);
+      await load(tab);
+    } finally {
+      setBusy(null);
+    }
+  }
+
   const grandTotal = groups.reduce((s, g) => s + g.total, 0);
+  const allItems = groups.flatMap((g) => g.items);
+  const verifiedCount = allItems.filter((e) => e.justif_verified ?? false).length;
 
   return (
     <div className="reimbursements-page">
@@ -79,6 +92,7 @@ export function Reimbursements() {
           {tab === "pending" && (
             <div className="totals-bar">
               <span>{groups.length} payeur{groups.length > 1 ? "s" : ""}</span>
+              <span>Justif. vérifiés : <b>{verifiedCount}/{allItems.length}</b></span>
               <span className="total">Total à rembourser : <b>{fmtEUR(grandTotal)}</b></span>
             </div>
           )}
@@ -102,6 +116,7 @@ export function Reimbursements() {
                     <th>Date</th>
                     <th>Catégorie</th>
                     <th className="num">TTC</th>
+                    <th>Justif. vérifié</th>
                     <th></th>
                   </tr>
                 </thead>
@@ -112,6 +127,19 @@ export function Reimbursements() {
                       <td>{fmtDate(e.expense_date)}</td>
                       <td>{e.category?.label ?? "—"}</td>
                       <td className="num">{fmtEUR(Number(e.amount_ttc))}</td>
+                      <td>
+                        <label style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+                          <input
+                            type="checkbox"
+                            checked={e.justif_verified ?? false}
+                            disabled={busy !== null}
+                            onChange={(ev) => onToggleVerified(e.id, ev.target.checked)}
+                          />
+                          {(e.justif_verified ?? false)
+                            ? <span className="badge ok">vérifié</span>
+                            : <span className="badge warn">à vérifier</span>}
+                        </label>
+                      </td>
                       <td>
                         {tab === "pending" ? (
                           <button className="link" disabled={busy !== null} onClick={() => onSettleItem(e.id, true)}>

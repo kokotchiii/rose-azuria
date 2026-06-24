@@ -93,6 +93,15 @@ export async function setExpenseReimbursed(expenseId: string, reimbursed: boolea
   if (error) throw error;
 }
 
+// Pointe (ou dé-pointe) la vérification du justificatif papier d'une note de frais.
+export async function setExpenseJustifVerified(expenseId: string, verified: boolean): Promise<void> {
+  const { error } = await supabase
+    .from("expenses")
+    .update({ justif_verified: verified, justif_verified_at: verified ? new Date().toISOString() : null })
+    .eq("id", expenseId);
+  if (error) throw error;
+}
+
 // Marque TOUT le dû d'un membre comme remboursé en une fois.
 export async function settlePayer(payerId: string): Promise<void> {
   const { error } = await supabase
