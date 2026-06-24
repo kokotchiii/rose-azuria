@@ -156,10 +156,12 @@ export function Suivi() {
         ca += revTotal(r); units += Math.max(1, serviceUnits(r.service));
       }
     }
-    const avgPerUnit = units > 0 ? ca / units : OBJ_TTC_PER_SERVICE;
-    const projete = avgPerUnit * WEEK_PLANNED_UNITS * SEMAINES_PAR_AN;
-    const budget = OBJ_TTC_PER_SERVICE * WEEK_PLANNED_UNITS * SEMAINES_PAR_AN;
-    return { projete, budget, avgPerUnit, hasData: units > 0 };
+    const avgPerUnitTTC = units > 0 ? ca / units : OBJ_TTC_PER_SERVICE;
+    const avgPerUnitHT = avgPerUnitTTC / (1 + TVA);
+    // Run-rate annuel (HT) = rythme actuel maintenu sur une année pleine.
+    const projeteHT = avgPerUnitHT * WEEK_PLANNED_UNITS * SEMAINES_PAR_AN;
+    const budgetHT = OBJ_HT_PER_SERVICE * WEEK_PLANNED_UNITS * SEMAINES_PAR_AN;
+    return { avgPerUnitHT, projeteHT, budgetHT, hasData: units > 0 };
   }, [revenues, today]);
 
   if (loading) return <div className="suivi-page"><h1>Suivi</h1><p className="muted">Chargement…</p></div>;
@@ -172,7 +174,7 @@ export function Suivi() {
   const couvertsParService = s.realizedUnits > 0 ? s.covers / s.realizedUnits : 0; // nb couverts / service
   const verdict = cls === "ok" ? "Objectif en vue 👍" : cls === "warn" ? "Tout près de l'objectif" : "En retard sur l'objectif";
 
-  const annualPct = annual.budget ? annual.projete / annual.budget : 0;
+  const annualPct = annual.budgetHT ? annual.projeteHT / annual.budgetHT : 0;
 
   return (
     <div className="suivi-page">
@@ -250,22 +252,23 @@ export function Suivi() {
         </table>
       </div>
 
-      {/* ---- Cap annuel ---- */}
-      <h2>Cap sur le budget prévisionnel</h2>
+      {/* ---- Rythme vs objectif (tout en HT, comme le business plan) ---- */}
+      <h2>Ton rythme vs objectif (HT)</h2>
       <div className="card" style={{ marginBottom: "1.5rem" }}>
-        <p className="muted" style={{ marginTop: 0 }}>À ton rythme des 30 derniers jours, sur une année pleine de croisière :</p>
+        <p className="muted" style={{ marginTop: 0 }}>Moyenne de tes 30 derniers jours, en HT (hors TVA), pour comparer à ton business plan.</p>
         <div className="suivi-kpis">
-          <div><div className="muted">CA annuel projeté</div><b>{fmt0(annual.projete)}</b></div>
-          <div><div className="muted">Budget de croisière</div><b>{fmt0(annual.budget)}</b></div>
+          <div><div className="muted">CA moyen / service (HT)</div><b>{annual.hasData ? fmtEUR(annual.avgPerUnitHT) : "—"}</b></div>
+          <div><div className="muted">Objectif / service (HT)</div><b>{fmtEUR(OBJ_HT_PER_SERVICE)}</b></div>
           <div><div className="muted">Atteinte</div><b className={`pct-${pctClass(annualPct)}`}>{Math.round(annualPct * 100)} %</b></div>
         </div>
         <div className="hint">
-          {annual.hasData
-            ? annualPct >= 1
-              ? "À ce rythme, tu dépasses le budget de croisière. 🎯"
-              : `À ce rythme, il manque ${fmt0(annual.budget - annual.projete)} sur l'année pour atteindre le budget de croisière.`
-            : "Saisis quelques services pour estimer le cap annuel."}
-          {" "}Repère 1re année (montée en charge) : ~125 175 € HT.
+          {annual.hasData ? (
+            <>
+              Tu réalises en moyenne <b>{fmtEUR(annual.avgPerUnitHT)} HT par service</b>, soit <b>{Math.round(annualPct * 100)} %</b> de la cible (278,91 € HT/service).<br />
+              <b>Run-rate</b> (si tu gardes ce rythme sur 12 mois pleins) : <b>{fmt0(annual.projeteHT)} HT</b> vs <b>{fmt0(annual.budgetHT)} HT</b> visés en croisière (année pleine).<br />
+              Ta <b>1re année réelle (1er juin → 31 déc)</b> est plus courte (~7 mois) et en montée en charge : budget business plan ≈ <b>125 175 € HT</b> — détail dans l'onglet <b>Prévisionnel</b>.
+            </>
+          ) : "Saisis quelques services pour estimer ton rythme."}
         </div>
       </div>
 
