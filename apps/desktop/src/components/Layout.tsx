@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { supabase } from "../supabaseClient";
 import type { Profile } from "@resto/shared";
 
-export type PageKey = "dashboard" | "capture" | "expenses" | "suppliers" | "products" | "todos" | "export" | "revenues" | "payable" | "reimbursements" | "events" | "previsionnel" | "reconcile";
+export type PageKey = "suivi" | "dashboard" | "capture" | "expenses" | "suppliers" | "products" | "todos" | "export" | "revenues" | "payable" | "reimbursements" | "events" | "previsionnel" | "reconcile";
 
 interface Props {
   page: PageKey;
@@ -14,6 +14,7 @@ interface Props {
 }
 
 const NAV: Array<{ key: PageKey; label: string; icon: string }> = [
+  { key: "suivi",     label: "Suivi (objectifs)", icon: "🎯" },
   { key: "dashboard", label: "Tableau de bord", icon: "📊" },
   { key: "capture",   label: "Capturer un justificatif", icon: "📷" },
   { key: "expenses",  label: "Dépenses", icon: "🧾" },

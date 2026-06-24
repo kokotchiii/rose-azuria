@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Layout, type PageKey } from "./components/Layout";
 import { Login } from "./pages/Login";
 import { Dashboard } from "./pages/Dashboard";
+import { Suivi } from "./pages/Suivi";
 import { Capture } from "./pages/Capture";
 import { Expenses } from "./pages/Expenses";
 import { Suppliers } from "./pages/Suppliers";
@@ -18,7 +19,7 @@ import { useAuth } from "./hooks/useAuth";
 
 export function App() {
   const { session, profile, loading } = useAuth();
-  const [page, setPage] = useState<PageKey>("capture");
+  const [page, setPage] = useState<PageKey>("suivi");
 
   if (loading) {
     return <div className="centered muted">Chargement…</div>;
@@ -29,6 +30,7 @@ export function App() {
 
   return (
     <Layout page={page} onChangePage={setPage} profile={profile}>
+      {page === "suivi"     && <Suivi />}
       {page === "dashboard" && <Dashboard />}
       {page === "capture"   && <Capture profile={profile} />}
       {page === "expenses"  && <Expenses />}
