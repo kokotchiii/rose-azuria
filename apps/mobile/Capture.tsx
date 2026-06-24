@@ -310,13 +310,16 @@ export function Capture({ profile }: Props) {
 
       const ex = res.extraction;
       const matchedCat = categories.find((c) => c.label === ex.suggested_category);
+      // Ticket / note de frais / autre → dépannage ; facture / BL → facture fournisseur.
+      const deducedKind = ex.document_type === "facture" || ex.document_type === "bon_de_livraison" ? "facture" : "depannage";
       setForm((prev) => ({
         ...prev,
-        // Ticket / note de frais / autre → dépannage ; facture / BL → facture fournisseur.
-        kind: ex.document_type === "facture" || ex.document_type === "bon_de_livraison" ? "facture" : "depannage",
+        kind: deducedKind,
         expense_date: ex.document_date ?? prev.expense_date,
-        // Échéance : celle lue sur la facture, sinon date de facture + 30 jours (délai légal par défaut).
-        due_date: ex.due_date ?? addDaysISO(ex.document_date ?? prev.expense_date, 30),
+        // Échéance seulement pour une FACTURE (un dépannage est payé sur le coup).
+        due_date: deducedKind === "facture"
+          ? (ex.due_date ?? addDaysISO(ex.document_date ?? prev.expense_date, 30))
+          : "",
         supplier_name: ex.supplier_name ?? "",
         category_id: matchedCat?.id ?? "",
         amount_ttc: ex.amount_ttc != null ? String(ex.amount_ttc) : "",
@@ -355,11 +358,19 @@ export function Capture({ profile }: Props) {
         ? await findOrCreateSupplier(form.supplier_name, profile.establishment_id)
         : null;
 
+      // Payé sur le coup (espèces / CB) ou dépannage => déjà réglé, pas d'échéance.
+      // Seule une FACTURE réglée par VIREMENT reste "à payer".
+      const paidOnSpot = form.payment_source !== "virement";
+      const isPaid = form.kind === "depannage" ? true : paidOnSpot;
+      const dueDate = form.kind === "facture" && !isPaid ? (form.due_date || null) : null;
+
       const { error: insErr } = await supabase.from("expenses").insert({
         establishment_id: profile.establishment_id,
         kind: form.kind,
         expense_date: form.expense_date,
-        due_date: form.due_date || null,
+        due_date: dueDate,
+        paid: isPaid,
+        paid_at: isPaid ? form.expense_date : null,
         supplier_id: supplierId,
         category_id: form.category_id || null,
         amount_ttc: Number(form.amount_ttc),
