@@ -80,6 +80,7 @@ export interface Expense {
   reimbursed_at: string | null;
   justif_verified: boolean;        // justificatif papier vérifié et pointé
   justif_verified_at: string | null;
+  reconciled: boolean;             // pointée sur un relevé bancaire (rapprochement)
   created_by: UUID | null;
   created_at: string;
 }

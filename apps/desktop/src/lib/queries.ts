@@ -277,6 +277,17 @@ export async function fetchSuppliersWithStats(): Promise<SupplierStats[]> {
 const ENRICHED_SELECT =
   "*, supplier:suppliers(name), category:categories(label), payer:profiles!expenses_payer_id_fkey(full_name)";
 
+// Toutes les FACTURES fournisseurs (kind=facture), payées ou non — pour l'onglet Factures.
+export async function fetchInvoices(): Promise<ExpenseListItem[]> {
+  const { data, error } = await supabase
+    .from("expenses")
+    .select(ENRICHED_SELECT)
+    .eq("kind", "facture")
+    .order("expense_date", { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as unknown as ExpenseListItem[];
+}
+
 // Factures avec une date d'échéance, non encore réglées (triées par échéance).
 export async function fetchPayables(): Promise<ExpenseListItem[]> {
   const { data, error } = await supabase

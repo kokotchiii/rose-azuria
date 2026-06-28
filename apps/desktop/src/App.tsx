@@ -13,6 +13,7 @@ import { Revenues } from "./pages/Revenues";
 import { Payable } from "./pages/Payable";
 import { Reconcile } from "./pages/Reconcile";
 import { Coffre } from "./pages/Coffre";
+import { Invoices } from "./pages/Invoices";
 import { Reimbursements } from "./pages/Reimbursements";
 import { Events } from "./pages/Events";
 import { Previsionnel } from "./pages/Previsionnel";
@@ -41,6 +42,7 @@ export function App() {
       {page === "export"    && <Export />}
       {page === "revenues"  && <Revenues profile={profile} />}
       {page === "payable"   && <Payable />}
+      {page === "invoices"  && <Invoices onGoReconcile={() => setPage("reconcile")} />}
       {page === "reconcile" && <Reconcile profile={profile} />}
       {page === "coffre"    && <Coffre profile={profile} />}
       {page === "reimbursements" && <Reimbursements />}
