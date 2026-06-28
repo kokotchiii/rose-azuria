@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import * as DocumentPicker from "expo-document-picker";
+import * as FileSystem from "expo-file-system/legacy";
 import type { Profile } from "@resto/shared";
 import {
   createEvent,
@@ -9,6 +11,9 @@ import {
   fetchRevenuesForEvent,
   setExpenseEvent,
   setRevenueEvent,
+  createEventExpense,
+  createEventRevenue,
+  uploadEventDocument,
   type EventWithTotals,
   type ExpenseListItem,
   type EventRevenue,
@@ -16,6 +21,13 @@ import {
 import { fmtDate, fmtEUR, todayISO } from "../lib/format";
 import { colors, radius, space, TOUCH, type } from "../theme";
 import { Card, DateField, Empty, Loading, Screen } from "./ui";
+
+function base64ToBytes(base64: string): Uint8Array {
+  const bin = globalThis.atob(base64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
 
 const SERVICE_LABEL: Record<string, string> = { midi: "Midi", soir: "Soir", journee: "Journée", autre: "Autre" };
 
@@ -61,7 +73,7 @@ export function EventsScreen({ profile }: { profile: Profile }) {
   }
 
   if (selected) {
-    return <EventDetail event={selected} onBack={() => { setSelected(null); loadList(); }} />;
+    return <EventDetail event={selected} profile={profile} onBack={() => { setSelected(null); loadList(); }} />;
   }
 
   if (loading) return <Loading />;
@@ -131,11 +143,33 @@ function PnlCell({ label, value, color, strong }: { label: string; value: string
 }
 
 // ---------- Détail d'un événement ----------
-function EventDetail({ event, onBack }: { event: EventWithTotals; onBack: () => void }) {
+function EventDetail({ event, profile, onBack }: { event: EventWithTotals; profile: Profile; onBack: () => void }) {
   const [expenses, setExpenses] = useState<ExpenseListItem[]>([]);
   const [revenues, setRevenues] = useState<EventRevenue[]>([]);
   const [loading, setLoading] = useState(true);
   const [picker, setPicker] = useState<null | "expense" | "revenue">(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  const evDate = event.event_date ?? todayISO();
+  const [showExp, setShowExp] = useState(false);
+  const [expAmount, setExpAmount] = useState("");
+  const [expLabel, setExpLabel] = useState("");
+  const [showRev, setShowRev] = useState(false);
+  const [revAmount, setRevAmount] = useState("");
+  const [revFileName, setRevFileName] = useState<string | null>(null);
+  const [revBytes, setRevBytes] = useState<Uint8Array | null>(null);
+  const [revType, setRevType] = useState<string>("application/pdf");
+  const [saving, setSaving] = useState(false);
+
+  async function pickInvoice() {
+    const res = await DocumentPicker.getDocumentAsync({ type: ["application/pdf", "image/*"], copyToCacheDirectory: true });
+    if (res.canceled || !res.assets?.length) return;
+    const a = res.assets[0]!;
+    const b64 = await FileSystem.readAsStringAsync(a.uri, { encoding: FileSystem.EncodingType.Base64 });
+    setRevBytes(base64ToBytes(b64));
+    setRevFileName(a.name);
+    setRevType(a.mimeType ?? "application/pdf");
+  }
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -155,6 +189,30 @@ function EventDetail({ event, onBack }: { event: EventWithTotals; onBack: () => 
   const totalRev = revenues.reduce((s, r) => s + r.total, 0);
   const totalExp = expenses.reduce((s, e) => s + Number(e.amount_ttc), 0);
   const net = totalRev - totalExp;
+
+  async function onCreateExpense() {
+    const amount = parseFloat(expAmount.replace(",", "."));
+    if (!amount || amount <= 0) return;
+    setSaving(true); setErr(null);
+    try {
+      await createEventExpense({ establishmentId: profile.establishment_id, createdBy: profile.id, eventId: event.id, amount, label: expLabel.trim() || null, date: evDate });
+      setExpAmount(""); setExpLabel(""); setShowExp(false); await load();
+    } catch (e: unknown) { setErr(String((e as Error).message ?? e)); } finally { setSaving(false); }
+  }
+
+  async function onCreateRevenue() {
+    const amount = parseFloat(revAmount.replace(",", "."));
+    if (!amount || amount <= 0) return;
+    setSaving(true); setErr(null);
+    try {
+      let documentId: string | null = null;
+      if (revBytes) {
+        documentId = await uploadEventDocument({ establishmentId: profile.establishment_id, uploadedBy: profile.id, file: revBytes, fileName: revFileName ?? "facture.pdf", contentType: revType });
+      }
+      await createEventRevenue({ establishmentId: profile.establishment_id, createdBy: profile.id, eventId: event.id, amount, date: evDate, documentId });
+      setRevAmount(""); setRevBytes(null); setRevFileName(null); setShowRev(false); await load();
+    } catch (e: unknown) { setErr(String((e as Error).message ?? e)); } finally { setSaving(false); }
+  }
 
   return (
     <Screen>
@@ -177,14 +235,32 @@ function EventDetail({ event, onBack }: { event: EventWithTotals; onBack: () => 
         <Loading />
       ) : (
         <>
+          {err && <Text style={[styles.muted, { color: colors.danger }]}>{err}</Text>}
+
           {/* Recettes */}
           <View style={styles.sectionHead}>
             <Text style={styles.sectionTitle}>Recettes</Text>
-            <Pressable onPress={() => setPicker("revenue")} accessibilityRole="button" style={styles.addLink}>
-              <Ionicons name="add" size={18} color={colors.primary} />
-              <Text style={styles.addLinkText}>Ajouter</Text>
-            </Pressable>
+            <View style={{ flexDirection: "row", gap: space.md }}>
+              <Pressable onPress={() => { setShowRev((v) => !v); setShowExp(false); }} style={styles.addLink}>
+                <Ionicons name="add" size={18} color={colors.primary} /><Text style={styles.addLinkText}>Créer</Text>
+              </Pressable>
+              <Pressable onPress={() => setPicker("revenue")} style={styles.addLink}>
+                <Text style={styles.addLinkText}>Rattacher</Text>
+              </Pressable>
+            </View>
           </View>
+          {showRev && (
+            <Card style={{ gap: space.sm }}>
+              <TextInput style={styles.input} value={revAmount} onChangeText={setRevAmount} keyboardType="decimal-pad" placeholder="Montant encaissé (€)" placeholderTextColor={colors.textMuted} />
+              <Pressable style={[styles.btn, styles.btnGhost]} onPress={pickInvoice}>
+                <Text style={styles.btnGhostText} numberOfLines={1}>{revFileName ? `📎 ${revFileName}` : "Joindre la facture émise (PDF/photo)"}</Text>
+              </Pressable>
+              <View style={styles.formActions}>
+                <Pressable style={[styles.btn, styles.btnGhost]} onPress={() => setShowRev(false)} disabled={saving}><Text style={styles.btnGhostText}>Annuler</Text></Pressable>
+                <Pressable style={[styles.btn, styles.btnPrimary]} onPress={onCreateRevenue} disabled={saving}>{saving ? <ActivityIndicator color={colors.white} /> : <Text style={styles.btnPrimaryText}>Ajouter</Text>}</Pressable>
+              </View>
+            </Card>
+          )}
           {revenues.length === 0 ? (
             <Text style={styles.muted}>Aucune recette rattachée.</Text>
           ) : (
@@ -205,11 +281,25 @@ function EventDetail({ event, onBack }: { event: EventWithTotals; onBack: () => 
           {/* Dépenses */}
           <View style={styles.sectionHead}>
             <Text style={styles.sectionTitle}>Dépenses</Text>
-            <Pressable onPress={() => setPicker("expense")} accessibilityRole="button" style={styles.addLink}>
-              <Ionicons name="add" size={18} color={colors.primary} />
-              <Text style={styles.addLinkText}>Ajouter</Text>
-            </Pressable>
+            <View style={{ flexDirection: "row", gap: space.md }}>
+              <Pressable onPress={() => { setShowExp((v) => !v); setShowRev(false); }} style={styles.addLink}>
+                <Ionicons name="add" size={18} color={colors.primary} /><Text style={styles.addLinkText}>Créer</Text>
+              </Pressable>
+              <Pressable onPress={() => setPicker("expense")} style={styles.addLink}>
+                <Text style={styles.addLinkText}>Rattacher</Text>
+              </Pressable>
+            </View>
           </View>
+          {showExp && (
+            <Card style={{ gap: space.sm }}>
+              <TextInput style={styles.input} value={expAmount} onChangeText={setExpAmount} keyboardType="decimal-pad" placeholder="Montant (€)" placeholderTextColor={colors.textMuted} />
+              <TextInput style={styles.input} value={expLabel} onChangeText={setExpLabel} placeholder="Libellé (optionnel)" placeholderTextColor={colors.textMuted} />
+              <View style={styles.formActions}>
+                <Pressable style={[styles.btn, styles.btnGhost]} onPress={() => setShowExp(false)} disabled={saving}><Text style={styles.btnGhostText}>Annuler</Text></Pressable>
+                <Pressable style={[styles.btn, styles.btnPrimary]} onPress={onCreateExpense} disabled={saving}>{saving ? <ActivityIndicator color={colors.white} /> : <Text style={styles.btnPrimaryText}>Ajouter</Text>}</Pressable>
+              </View>
+            </Card>
+          )}
           {expenses.length === 0 ? (
             <Text style={styles.muted}>Aucune dépense rattachée.</Text>
           ) : (
@@ -387,7 +477,7 @@ const styles = StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "flex-end" },
   sheet: {
     backgroundColor: colors.bg, borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl,
-    paddingTop: space.lg, maxHeight: "80%",
+    paddingTop: space.lg, paddingBottom: space.xxl, maxHeight: "85%",
   },
   sheetHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: space.lg, paddingBottom: space.sm },
   sheetTitle: { ...type.h2, color: colors.text },
