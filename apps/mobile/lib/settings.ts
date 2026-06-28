@@ -42,7 +42,7 @@ export const DEFAULT_OPEN_SCHEDULE: DaySchedule[] = [
   { midi: false, soir: true },  // Samedi
   { midi: false, soir: false }, // Dimanche
 ];
-export const DEFAULT_OPENING_DATE = "2026-06-02";
+export const DEFAULT_OPENING_DATE = "2026-06-01";
 
 function isValidSchedule(v: unknown): v is DaySchedule[] {
   return Array.isArray(v) && v.length === 7 && v.every((d) => d && typeof d.midi === "boolean" && typeof d.soir === "boolean");

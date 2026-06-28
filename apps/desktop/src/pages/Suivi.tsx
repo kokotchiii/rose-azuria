@@ -16,7 +16,7 @@ import {
 } from "@resto/previsionnel";
 
 // --- Objectif (business plan) ---
-const OBJ_HT_PER_SERVICE = 278.91;      // CA HT moyen / service visé (An1 ≈ 125 175 €)
+const OBJ_HT_PER_SERVICE = 225.79;      // CA HT moyen / service visé (BP N+1 119 216 € / 528 services)
 const TVA = 0.10;
 const OBJ_TTC_PER_SERVICE = OBJ_HT_PER_SERVICE * (1 + TVA);  // ≈ 306,80 € TTC
 // Services planifiés par jour : lun→ven midi+soir (2), samedi soir (1), dimanche fermé.
@@ -393,9 +393,9 @@ export function Suivi() {
         <div className="hint">
           {annual.hasData ? (
             <>
-              Tu réalises en moyenne <b>{fmtEUR(annual.avgPerUnitHT)} HT par service</b>, soit <b>{Math.round(annualPct * 100)} %</b> de la cible (278,91 € HT/service).<br />
+              Tu réalises en moyenne <b>{fmtEUR(annual.avgPerUnitHT)} HT par service</b>, soit <b>{Math.round(annualPct * 100)} %</b> de la cible (225,79 € HT/service).<br />
               <b>Run-rate</b> (si tu gardes ce rythme sur 12 mois pleins) : <b>{fmt0(annual.projeteHT)} HT</b> vs <b>{fmt0(annual.budgetHT)} HT</b> visés en croisière (année pleine).<br />
-              Ta <b>1re année réelle (1er juin → 31 déc)</b> est plus courte (~7 mois) et en montée en charge : budget business plan ≈ <b>125 175 € HT</b> — détail dans l'onglet <b>Prévisionnel</b>.
+              Ta <b>1re année réelle (1er juin → 31 déc)</b> est plus courte (~7 mois) et en montée en charge : budget business plan ≈ <b>68 943 € HT</b> — détail dans l'onglet <b>Prévisionnel</b>.
             </>
           ) : "Saisis quelques services pour estimer ton rythme."}
         </div>

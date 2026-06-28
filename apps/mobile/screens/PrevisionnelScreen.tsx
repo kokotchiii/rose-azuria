@@ -48,8 +48,8 @@ import { BarList } from "./charts";
 
 type Mode = "initial" | "live";
 
-// CA HT/service de référence du business plan → An1 ≈ 125 175 € (11 services × 48 sem × 0,85).
-const CA_SERVICE_CIBLE_HT = 278.91;
+// CA HT/service de référence du business plan → N+1 = 119 216 € / 528 services.
+const CA_SERVICE_CIBLE_HT = 225.79;
 
 function mapCategorie(label?: string | null): CategorieFacture {
   const l = (label ?? "").toLowerCase();

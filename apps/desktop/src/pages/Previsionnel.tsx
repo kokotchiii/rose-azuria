@@ -38,8 +38,8 @@ const DEFAULT_OPENING_DATE = "2026-06-01";
 // midi+soir lun→ven, samedi soir, dimanche fermé = 11 services / semaine.
 const DEFAULT_SVC_PER_WEEKDAY = [2, 2, 2, 2, 2, 1, 0];
 
-// CA HT/service de référence du business plan → An1 ≈ 125 175 €.
-const CA_SERVICE_CIBLE_HT = 278.91;
+// CA HT/service de référence du business plan → N+1 = 119 216 € / 528 services.
+const CA_SERVICE_CIBLE_HT = 225.79;
 
 function mapCategorie(label?: string | null): CategorieFacture {
   const l = (label ?? "").toLowerCase();
@@ -386,7 +386,7 @@ function CompareView({
         <div className="hint">
           {basis === "premiere"
             ? `Ta 1re année commence en juin : ${compare.servicesAn1} services planifiés jusqu'au 31/12. Le budget est proraté sur la même période pour une comparaison juste.`
-            : "Rythme de croisière sur 12 mois pleins. Budget An1 de référence du business plan : ~125 175 € (1re année avec montée en charge)."}
+            : "Rythme de croisière sur 12 mois pleins. Business plan : N+1 = 119 216 € HT (1re année partielle juin→déc = 68 943 €)."}
         </div>
         <label className="toggle-line" style={{ display: "inline-flex", alignItems: "center", gap: 8, marginTop: 10 }}>
           <input type="checkbox" checked={caOnly} onChange={(e) => onToggleCaOnly(e.target.checked)} />

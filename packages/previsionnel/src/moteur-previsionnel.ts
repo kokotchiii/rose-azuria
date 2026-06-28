@@ -90,15 +90,15 @@ export const HYPOTHESES_DEFAUT: Hypotheses = {
   tvaCuisine: 0.10, tvaBoissons: 0.10, tvaAlcool: 0.20,
   servicesParSemaine: 11, semainesParAn: 48,
   monteeEnChargeAn1: 0.85, croissanceAn2: 0.10, croissanceAn3: 0.08,
-  coutMatiereCuisine: 0.28, coutMatiereBoissons: 0.25, coutMatiereAlcool: 0.30,
+  coutMatiereCuisine: 0.30, coutMatiereBoissons: 0.30, coutMatiereAlcool: 0.30,
   loyerMensuelHC: 1432.56, chargesLocMensuel: 133.33, assurancePro: 1800,
   eauElecGaz: 6074, comptable: 2880, telInternet: 400, logiciels: 490,
   entretien: 500, hommeCleMensuel: 60, commissionCB: 0.007, indexationLoyer: 0.02,
   serveuseNetMensuel: 1600, ratioNetBrut: 0.78, chargesPatServeuse: 0.30,
   chefBrutMensuel: 616, chargesPatDG: 0.45, chefDesAnnee: 2,
-  materielHT: 16382, dureeMateriel: 5, fraisEtab: 6365, dureeFrais: 5,
+  materielHT: 15981, dureeMateriel: 5, fraisEtab: 6365, dureeFrais: 5,
   pretFonds: 30000, tauxFonds: 0.035, moisFonds: 84,
-  pretMateriel: 16382, tauxMat: 0.035, moisMat: 84,
+  pretMateriel: 15981, tauxMat: 0.035, moisMat: 84,
   tauxISReduit: 0.15, seuilIS: 42500, tauxISNormal: 0.25,
 };
 
