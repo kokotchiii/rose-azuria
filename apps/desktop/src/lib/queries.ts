@@ -137,6 +137,31 @@ export async function findDuplicateByInvoiceNumber(
   return (data as unknown as { id: string; expense_date: string; amount_ttc: number } | null) ?? null;
 }
 
+// Doublon "prix/fournisseur" : même fournisseur + même montant TTC + date proche
+// (± windowDays), même SANS n° de facture. Repère les saisies en double.
+export async function findDuplicateBySupplierAmount(
+  supplierId: string,
+  amountTtc: number,
+  date: string,
+  windowDays = 4,
+): Promise<{ id: string; expense_date: string; amount_ttc: number } | null> {
+  const d = new Date(date + "T00:00:00");
+  const from = new Date(d); from.setDate(d.getDate() - windowDays);
+  const to = new Date(d); to.setDate(d.getDate() + windowDays);
+  const iso = (x: Date) => x.toISOString().slice(0, 10);
+  const { data } = await supabase
+    .from("expenses")
+    .select("id, expense_date, amount_ttc")
+    .eq("supplier_id", supplierId)
+    .gte("expense_date", iso(from))
+    .lte("expense_date", iso(to))
+    .gte("amount_ttc", amountTtc - 0.01)
+    .lte("amount_ttc", amountTtc + 0.01)
+    .limit(1);
+  const row = (data ?? [])[0] as { id: string; expense_date: string; amount_ttc: number } | undefined;
+  return row ?? null;
+}
+
 // ---------------------------------------------------------------------------
 // Insertion des lignes d'articles (depuis l'IA)
 // ---------------------------------------------------------------------------

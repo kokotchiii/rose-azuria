@@ -717,6 +717,37 @@ export function findExpenseDuplicates(items: ExpenseListItem[]): ExpenseDupGroup
     .map(([key, dupItems]) => ({ key, items: dupItems }));
 }
 
+// ---------- Détection de doublons à la saisie ----------
+export async function findDuplicateByInvoiceNumber(
+  supplierId: string, invoiceNumber: string,
+): Promise<{ id: string; expense_date: string; amount_ttc: number } | null> {
+  const { data } = await supabase
+    .from("expenses")
+    .select("id, expense_date, amount_ttc")
+    .eq("supplier_id", supplierId)
+    .eq("invoice_number", invoiceNumber)
+    .maybeSingle();
+  return (data as unknown as { id: string; expense_date: string; amount_ttc: number } | null) ?? null;
+}
+
+// Même fournisseur + même montant + date proche (± windowDays), sans n° de facture.
+export async function findDuplicateBySupplierAmount(
+  supplierId: string, amountTtc: number, date: string, windowDays = 4,
+): Promise<{ id: string; expense_date: string; amount_ttc: number } | null> {
+  const d = new Date(date + "T00:00:00");
+  const from = new Date(d); from.setDate(d.getDate() - windowDays);
+  const to = new Date(d); to.setDate(d.getDate() + windowDays);
+  const iso = (x: Date) => x.toISOString().slice(0, 10);
+  const { data } = await supabase
+    .from("expenses")
+    .select("id, expense_date, amount_ttc")
+    .eq("supplier_id", supplierId)
+    .gte("expense_date", iso(from)).lte("expense_date", iso(to))
+    .gte("amount_ttc", amountTtc - 0.01).lte("amount_ttc", amountTtc + 0.01)
+    .limit(1);
+  return ((data ?? [])[0] as { id: string; expense_date: string; amount_ttc: number } | undefined) ?? null;
+}
+
 // ---------- Échéances / À payer ----------
 // Factures avec une date d'échéance, non encore réglées (triées par échéance).
 export async function fetchPayables(): Promise<ExpenseListItem[]> {

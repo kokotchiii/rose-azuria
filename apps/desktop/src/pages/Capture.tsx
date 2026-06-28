@@ -11,6 +11,7 @@ import {
   findOrCreateSupplier,
   findDuplicateByHash,
   findDuplicateByInvoiceNumber,
+  findDuplicateBySupplierAmount,
   insertExpenseItems,
 } from "../lib/queries";
 import { fmtEUR, todayISO, addDaysISO } from "../lib/format";
@@ -165,6 +166,19 @@ export function Capture({ profile }: Props) {
         if (dup) {
           setWarning(
             `⚠ Une dépense existe déjà chez ce fournisseur avec le n° ${form.invoice_number} (montant ${fmtEUR(Number(dup.amount_ttc))} du ${dup.expense_date}). Clique à nouveau sur Enregistrer pour confirmer le doublon.`,
+          );
+          setDuplicateAck(true);
+          setSaving(false);
+          return;
+        }
+      }
+
+      // 2b) Dedup "prix/fournisseur" — même fournisseur + même montant + date proche.
+      if (!duplicateAck && supplierId && form.amount_ttc) {
+        const dup = await findDuplicateBySupplierAmount(supplierId, Number(form.amount_ttc), form.expense_date);
+        if (dup) {
+          setWarning(
+            `⚠ Doublon possible : ${fmtEUR(Number(dup.amount_ttc))} déjà saisi chez ce fournisseur le ${dup.expense_date}. Clique à nouveau sur Enregistrer pour confirmer.`,
           );
           setDuplicateAck(true);
           setSaving(false);

@@ -20,6 +20,7 @@ import * as Sharing from "expo-sharing";
 import { uploadAndClassify, uploadAndClassifyPages, PAYMENT_SOURCES } from "@resto/shared";
 import type { AiExtraction, Category, ExpenseKind, PaymentSource, Profile } from "@resto/shared";
 import { supabase } from "./supabaseClient";
+import { findDuplicateByInvoiceNumber, findDuplicateBySupplierAmount } from "./lib/data";
 import { DateField } from "./screens/ui";
 import { colors, radius, shadow, space, TOUCH, type } from "./theme";
 
@@ -145,6 +146,7 @@ export function Capture({ profile }: Props) {
   const [documentId, setDocumentId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY_FORM());
   const [error, setError] = useState<string | null>(null);
+  const [dupAck, setDupAck] = useState(false); // l'utilisateur a confirmé un doublon possible
   const [success, setSuccess] = useState(false);
 
   useEffect(() => {
@@ -169,6 +171,7 @@ export function Capture({ profile }: Props) {
     setDocumentId(null);
     setForm(EMPTY_FORM());
     setError(null);
+    setDupAck(false);
   }
 
   // Une nouvelle page invalide l'analyse précédente (il faut relancer l'IA).
@@ -357,6 +360,20 @@ export function Capture({ profile }: Props) {
       const supplierId = form.supplier_name.trim()
         ? await findOrCreateSupplier(form.supplier_name, profile.establishment_id)
         : null;
+
+      // Détection de doublon (même fournisseur) : par n° de facture, sinon par
+      // montant + date proche. On alerte ; re-tap "Enregistrer" pour confirmer.
+      if (!dupAck && supplierId) {
+        const dup = form.invoice_number
+          ? await findDuplicateByInvoiceNumber(supplierId, form.invoice_number)
+          : await findDuplicateBySupplierAmount(supplierId, Number(form.amount_ttc), form.expense_date);
+        if (dup) {
+          setError(`⚠ Doublon possible : ${Number(dup.amount_ttc).toFixed(2)} € déjà saisi chez ce fournisseur le ${dup.expense_date}. Appuie encore sur Enregistrer pour confirmer.`);
+          setDupAck(true);
+          setSaving(false);
+          return;
+        }
+      }
 
       // Payé sur le coup (espèces / CB) ou dépannage => déjà réglé, pas d'échéance.
       // Seule une FACTURE réglée par VIREMENT reste "à payer".
