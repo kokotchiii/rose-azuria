@@ -10,6 +10,9 @@ import {
   fetchRevenuesForEvent,
   setExpenseEvent,
   setRevenueEvent,
+  createEventExpense,
+  createEventRevenue,
+  uploadEventDocument,
   type EventWithTotals,
   type ExpenseListItem,
   type EventRevenue,
@@ -59,7 +62,7 @@ export function Events({ profile }: Props) {
   }
 
   if (selected) {
-    return <EventDetail event={selected} onBack={() => { setSelected(null); loadList(); }} />;
+    return <EventDetail event={selected} profile={profile} onBack={() => { setSelected(null); loadList(); }} />;
   }
 
   return (
@@ -126,12 +129,62 @@ export function Events({ profile }: Props) {
 }
 
 // ---------- Détail d'un événement ----------
-function EventDetail({ event, onBack }: { event: EventWithTotals; onBack: () => void }) {
+function EventDetail({ event, profile, onBack }: { event: EventWithTotals; profile: Profile; onBack: () => void }) {
   const [expenses, setExpenses] = useState<ExpenseListItem[]>([]);
   const [revenues, setRevenues] = useState<EventRevenue[]>([]);
   const [loading, setLoading] = useState(true);
   const [picker, setPicker] = useState<null | "expense" | "revenue">(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // Formulaires de création directe
+  const evDate = event.event_date ?? todayISO();
+  const [showExpForm, setShowExpForm] = useState(false);
+  const [expAmount, setExpAmount] = useState("");
+  const [expLabel, setExpLabel] = useState("");
+  const [showRevForm, setShowRevForm] = useState(false);
+  const [revAmount, setRevAmount] = useState("");
+  const [revDate, setRevDate] = useState(evDate);
+  const [revFile, setRevFile] = useState<File | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  async function onCreateExpense() {
+    const amount = parseFloat(expAmount.replace(",", "."));
+    if (!amount || amount <= 0) return;
+    setSaving(true); setError(null);
+    try {
+      await createEventExpense({
+        establishmentId: profile.establishment_id, createdBy: profile.id, eventId: event.id,
+        amount, label: expLabel.trim() || null, date: evDate,
+      });
+      setExpAmount(""); setExpLabel(""); setShowExpForm(false);
+      await load();
+    } catch (e: unknown) { setError(String((e as Error).message ?? e)); }
+    finally { setSaving(false); }
+  }
+
+  async function onCreateRevenue() {
+    const amount = parseFloat(revAmount.replace(",", "."));
+    if (!amount || amount <= 0) return;
+    setSaving(true); setError(null);
+    try {
+      let documentId: string | null = null;
+      if (revFile) {
+        const buf = await revFile.arrayBuffer();
+        documentId = await uploadEventDocument({
+          establishmentId: profile.establishment_id, uploadedBy: profile.id,
+          file: buf, fileName: revFile.name, contentType: revFile.type || "application/pdf",
+        });
+      }
+      await createEventRevenue({
+        establishmentId: profile.establishment_id, createdBy: profile.id, eventId: event.id,
+        amount, date: revDate || evDate, documentId,
+      });
+      setRevAmount(""); setRevFile(null); setShowRevForm(false);
+      await load();
+    } catch (e: unknown) { setError(String((e as Error).message ?? e)); }
+    finally { setSaving(false); }
+  }
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -177,11 +230,35 @@ function EventDetail({ event, onBack }: { event: EventWithTotals; onBack: () => 
         <p className="muted">Chargement…</p>
       ) : (
         <>
+          {error && <div className="danger" style={{ marginBottom: 8 }}>{error}</div>}
+
           {/* Recettes */}
           <div className="group-head">
             <span>Recettes</span>
-            <button className="link" onClick={() => setPicker("revenue")}>+ Ajouter</button>
+            <span style={{ display: "flex", gap: 12 }}>
+              <button className="link" onClick={() => { setShowRevForm((v) => !v); setShowExpForm(false); }}>+ Créer (montant + facture)</button>
+              <button className="link" onClick={() => setPicker("revenue")}>Rattacher</button>
+            </span>
           </div>
+          {showRevForm && (
+            <div className="card" style={{ marginBottom: "0.75rem" }}>
+              <div className="grid-2">
+                <label>Montant encaissé (€)
+                  <input type="number" value={revAmount} onChange={(e) => setRevAmount(e.target.value)} placeholder="0.00" />
+                </label>
+                <label>Date
+                  <input type="date" value={revDate} onChange={(e) => setRevDate(e.target.value)} />
+                </label>
+              </div>
+              <label style={{ display: "block", marginTop: 8 }}>Facture émise (PDF/image, optionnel)
+                <input type="file" accept="application/pdf,image/*" onChange={(e) => setRevFile(e.target.files?.[0] ?? null)} />
+              </label>
+              <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                <button className="primary" disabled={saving} onClick={onCreateRevenue}>{saving ? "…" : "Ajouter la recette"}</button>
+                <button className="link" onClick={() => setShowRevForm(false)}>Annuler</button>
+              </div>
+            </div>
+          )}
           <div className="table-wrap" style={{ marginBottom: "1.25rem", borderRadius: "0 0 8px 8px", borderTop: "none" }}>
             <table className="exp-table">
               <tbody>
@@ -202,8 +279,27 @@ function EventDetail({ event, onBack }: { event: EventWithTotals; onBack: () => 
           {/* Dépenses */}
           <div className="group-head">
             <span>Dépenses</span>
-            <button className="link" onClick={() => setPicker("expense")}>+ Ajouter</button>
+            <span style={{ display: "flex", gap: 12 }}>
+              <button className="link" onClick={() => { setShowExpForm((v) => !v); setShowRevForm(false); }}>+ Créer (montant)</button>
+              <button className="link" onClick={() => setPicker("expense")}>Rattacher</button>
+            </span>
           </div>
+          {showExpForm && (
+            <div className="card" style={{ marginBottom: "0.75rem" }}>
+              <div className="grid-2">
+                <label>Montant (€)
+                  <input type="number" value={expAmount} onChange={(e) => setExpAmount(e.target.value)} placeholder="0.00" />
+                </label>
+                <label>Libellé (optionnel)
+                  <input value={expLabel} onChange={(e) => setExpLabel(e.target.value)} placeholder="ex. fleurs, extra…" />
+                </label>
+              </div>
+              <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                <button className="primary" disabled={saving} onClick={onCreateExpense}>{saving ? "…" : "Ajouter la dépense"}</button>
+                <button className="link" onClick={() => setShowExpForm(false)}>Annuler</button>
+              </div>
+            </div>
+          )}
           <div className="table-wrap" style={{ borderRadius: "0 0 8px 8px", borderTop: "none" }}>
             <table className="exp-table">
               <tbody>

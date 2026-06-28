@@ -470,6 +470,64 @@ export async function fetchRevenuesForEvent(eventId: string | null): Promise<Eve
     .map((r) => ({ id: r.id, revenue_date: r.revenue_date, service: r.service, total: revTotal(r) }));
 }
 
+// Crée une dépense d'événement avec JUSTE un montant (pas de justificatif).
+export async function createEventExpense(args: {
+  establishmentId: string; createdBy: string; eventId: string;
+  amount: number; label: string | null; date: string;
+}): Promise<void> {
+  const { error } = await supabase.from("expenses").insert({
+    establishment_id: args.establishmentId,
+    kind: "depannage",
+    expense_date: args.date,
+    amount_ttc: args.amount,
+    note: args.label,
+    event_id: args.eventId,
+    payment_source: "especes",
+    paid: true, paid_at: args.date,
+    reimbursable: false,
+    created_by: args.createdBy,
+  });
+  if (error) throw error;
+}
+
+// Upload simple d'un fichier (facture émise) → crée la ligne documents, renvoie l'id.
+export async function uploadEventDocument(args: {
+  establishmentId: string; uploadedBy: string;
+  file: ArrayBuffer | Blob | Uint8Array; fileName: string; contentType: string;
+}): Promise<string> {
+  const now = new Date();
+  const safe = args.fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const path = `${args.establishmentId}/events/${now.getFullYear()}/${now.getTime()}-${safe}`;
+  const { error: upErr } = await supabase.storage.from("documents").upload(path, args.file, { contentType: args.contentType, upsert: false });
+  if (upErr) throw upErr;
+  const { data, error } = await supabase.from("documents")
+    .insert({ establishment_id: args.establishmentId, storage_path: path, file_type: args.contentType, uploaded_by: args.uploadedBy, ai_status: "done" })
+    .select("id").single();
+  if (error || !data) throw error ?? new Error("doc_insert_failed");
+  return data.id as string;
+}
+
+// Crée une recette d'événement (facture émise) avec montant + date + document optionnel.
+export async function createEventRevenue(args: {
+  establishmentId: string; createdBy: string; eventId: string;
+  amount: number; date: string; documentId: string | null;
+}): Promise<void> {
+  const { error } = await supabase.from("revenues").insert({
+    establishment_id: args.establishmentId,
+    revenue_date: args.date, service: "autre",
+    amount_cash: 0, amount_cb: 0, amount_other: args.amount,
+    covers: null, tables_count: null,
+    event_id: args.eventId, document_id: args.documentId,
+    created_by: args.createdBy,
+  });
+  if (error) {
+    if ((error as { code?: string }).code === "23505") {
+      throw new Error("Une recette « autre » existe déjà à cette date. Change la date de la recette.");
+    }
+    throw error;
+  }
+}
+
 // Rattacher / détacher un item (eventId = null pour détacher).
 export async function setExpenseEvent(expenseId: string, eventId: string | null): Promise<void> {
   const { error } = await supabase.from("expenses").update({ event_id: eventId }).eq("id", expenseId);
