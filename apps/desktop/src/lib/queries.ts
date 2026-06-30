@@ -690,11 +690,14 @@ export function serviceUnits(service: string): number {
 
 // CA HT d'une recette = TTC − TVA (déduite du taux par défaut faute de TVA stockée côté desktop).
 export function revenueHT(
-  r: { amount_cash: number; amount_cb: number; amount_other: number },
+  r: { amount_cash: number; amount_cb: number; amount_other: number; tva_amount?: number | null; tva_rate?: number | null },
   defaultRate: number,
 ): number {
   const ttc = revTotal(r);
-  return ttc / (1 + defaultRate / 100);
+  // TVA saisie en € → HT = TTC − TVA (exact). Sinon taux (tva_rate ou défaut).
+  if (r.tva_amount != null) return ttc - Number(r.tva_amount);
+  const rate = r.tva_rate ?? defaultRate;
+  return ttc / (1 + rate / 100);
 }
 
 // HT d'une dépense : TTC − TVA (si la TVA est connue, sinon null).

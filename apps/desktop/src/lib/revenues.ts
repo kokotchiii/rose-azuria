@@ -12,6 +12,8 @@ export interface RevenueRow {
   amount_cash: number;
   amount_cb: number;
   amount_other: number;
+  tva_rate: number | null;     // taux TVA (%) ; null = taux par défaut
+  tva_amount: number | null;   // TVA perçue (collectée) saisie en € ; prime sur tva_rate
   covers: number | null;
   tables_count: number | null;
   note: string | null;
@@ -35,6 +37,7 @@ export async function upsertRevenue(args: {
   amount_cash: number;
   amount_cb: number;
   amount_other: number;
+  tva_amount: number | null;
   covers: number | null;
   tables_count: number | null;
   note: string | null;

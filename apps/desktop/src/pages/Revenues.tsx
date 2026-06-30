@@ -30,6 +30,7 @@ export function Revenues({ profile }: Props) {
   const [cash, setCash]         = useState("");
   const [cb, setCb]             = useState("");
   const [other, setOther]       = useState("");
+  const [tva, setTva]           = useState("");
   const [covers, setCovers]     = useState("");
   const [tables, setTables]     = useState("");
   const [note, setNote]         = useState("");
@@ -60,13 +61,14 @@ export function Revenues({ profile }: Props) {
         amount_cash:      Number(cash || 0),
         amount_cb:        Number(cb || 0),
         amount_other:     Number(other || 0),
+        tva_amount:       tva ? Number(tva) : null,
         covers:           covers  ? Number(covers)  : null,
         tables_count:     tables  ? Number(tables)  : null,
         note:             note.trim() || null,
         created_by:       profile.id,
       });
       setMsg(`✅ Service ${service} du ${fmtDate(date)} enregistré`);
-      setCash(""); setCb(""); setOther("");
+      setCash(""); setCb(""); setOther(""); setTva("");
       setCovers(""); setTables(""); setNote("");
       await reload();
     } catch (e: unknown) {
@@ -90,6 +92,8 @@ export function Revenues({ profile }: Props) {
     const other = rows.reduce((s, r) => s + Number(r.amount_other), 0);
     const covers = rows.reduce((s, r) => s + (r.covers ?? 0), 0);
     const tables = rows.reduce((s, r) => s + (r.tables_count ?? 0), 0);
+    const tva = rows.reduce((s, r) => s + Number(r.tva_amount ?? 0), 0);
+    const ht = total - tva;
     const panierMoyen = covers > 0 ? total / covers : null;
     const ticketParTable = tables > 0 ? total / tables : null;
 
@@ -97,7 +101,7 @@ export function Revenues({ profile }: Props) {
     const midi = rows.filter((r) => r.service === "midi").reduce((s, r) => s + totalOf(r), 0);
     const soir = rows.filter((r) => r.service === "soir").reduce((s, r) => s + totalOf(r), 0);
 
-    return { total, cash, cb, other, covers, tables, panierMoyen, ticketParTable, midi, soir };
+    return { total, cash, cb, other, covers, tables, tva, ht, panierMoyen, ticketParTable, midi, soir };
   }, [rows]);
 
   // Evolution par jour
@@ -151,6 +155,10 @@ export function Revenues({ profile }: Props) {
             <input type="number" step="0.01" value={other} onChange={(e) => setOther(e.target.value)} placeholder="0" />
           </label>
           <label>
+            TVA perçue (€)
+            <input type="number" step="0.01" value={tva} onChange={(e) => setTva(e.target.value)} placeholder="collectée sur le service" />
+          </label>
+          <label>
             Couverts (nb clients)
             <input type="number" value={covers} onChange={(e) => setCovers(e.target.value)} placeholder="0" />
           </label>
@@ -180,7 +188,9 @@ export function Revenues({ profile }: Props) {
 
       {/* KPIs */}
       <div className="kpis">
-        <div className="kpi"><div className="kpi-label">CA total</div><div className="kpi-value">{fmtEUR(stats.total)}</div></div>
+        <div className="kpi"><div className="kpi-label">CA total (TTC)</div><div className="kpi-value">{fmtEUR(stats.total)}</div></div>
+        <div className="kpi"><div className="kpi-label">CA HT</div><div className="kpi-value">{fmtEUR(stats.ht)}</div></div>
+        <div className="kpi"><div className="kpi-label">TVA collectée</div><div className="kpi-value">{stats.tva > 0 ? fmtEUR(stats.tva) : "—"}</div></div>
         <div className="kpi"><div className="kpi-label">Couverts</div><div className="kpi-value">{stats.covers}</div></div>
         <div className="kpi">
           <div className="kpi-label">Panier moyen</div>
@@ -236,6 +246,7 @@ export function Revenues({ profile }: Props) {
               <th className="num">Espèces</th>
               <th className="num">Autre</th>
               <th className="num">Total</th>
+              <th className="num">TVA</th>
               <th className="num">Couverts</th>
               <th className="num">P. moyen</th>
               <th>Note</th>
@@ -244,9 +255,9 @@ export function Revenues({ profile }: Props) {
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={10} className="muted">Chargement…</td></tr>
+              <tr><td colSpan={11} className="muted">Chargement…</td></tr>
             ) : rows.length === 0 ? (
-              <tr><td colSpan={10} className="muted">Aucune recette saisie.</td></tr>
+              <tr><td colSpan={11} className="muted">Aucune recette saisie.</td></tr>
             ) : rows.map((r) => {
               const t = totalOf(r);
               const pm = r.covers && r.covers > 0 ? t / r.covers : null;
@@ -258,6 +269,7 @@ export function Revenues({ profile }: Props) {
                   <td className="num">{fmtEUR(Number(r.amount_cash))}</td>
                   <td className="num">{Number(r.amount_other) ? fmtEUR(Number(r.amount_other)) : "—"}</td>
                   <td className="num"><b>{fmtEUR(t)}</b></td>
+                  <td className="num">{r.tva_amount != null ? fmtEUR(Number(r.tva_amount)) : "—"}</td>
                   <td className="num">{r.covers ?? "—"}</td>
                   <td className="num">{pm != null ? fmtEUR(pm) : "—"}</td>
                   <td>{r.note ?? ""}</td>
