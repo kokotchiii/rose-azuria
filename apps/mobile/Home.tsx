@@ -20,10 +20,12 @@ import { ReimbursementsScreen } from "./screens/ReimbursementsScreen";
 import { EventsScreen } from "./screens/EventsScreen";
 import { ReconcileScreen } from "./screens/ReconcileScreen";
 import { GalleryScreen } from "./screens/GalleryScreen";
+import { InvoicesScreen } from "./screens/InvoicesScreen";
+import { CoffreScreen } from "./screens/CoffreScreen";
 import { BrandLogo, Screen as ScreenScroll } from "./screens/ui";
 
 type Tab = "capture" | "expenses" | "dashboard" | "more";
-type SubKey = "reimbursements" | "payable" | "reconcile" | "events" | "gallery" | "revenues" | "previsionnel" | "planned" | "suppliers" | "products" | "todos" | "export";
+type SubKey = "invoices" | "reimbursements" | "payable" | "reconcile" | "events" | "gallery" | "coffre" | "revenues" | "previsionnel" | "planned" | "suppliers" | "products" | "todos" | "export";
 
 const TABS: { key: Tab; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { key: "capture", label: "Capturer", icon: "camera" },
@@ -33,11 +35,13 @@ const TABS: { key: Tab; label: string; icon: keyof typeof Ionicons.glyphMap }[] 
 ];
 
 const SUBS: { key: SubKey; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+  { key: "invoices", label: "Factures", icon: "document-text-outline" },
   { key: "reimbursements", label: "Notes de frais", icon: "wallet-outline" },
   { key: "payable", label: "À payer (échéances)", icon: "card-outline" },
   { key: "reconcile", label: "Rapprochement bancaire", icon: "git-compare-outline" },
   { key: "events", label: "Événements", icon: "sparkles-outline" },
   { key: "gallery", label: "Galerie photos", icon: "images-outline" },
+  { key: "coffre", label: "Coffre à documents", icon: "folder-outline" },
   { key: "revenues", label: "Recettes", icon: "cash-outline" },
   { key: "previsionnel", label: "Prévisionnel", icon: "trending-up-outline" },
   { key: "planned", label: "À prévoir", icon: "construct-outline" },
@@ -52,6 +56,8 @@ const TITLES: Record<Tab | SubKey, string> = {
   expenses: "Dépenses",
   dashboard: "Tableau de bord",
   more: "Plus",
+  invoices: "Factures",
+  coffre: "Coffre à documents",
   reimbursements: "Notes de frais",
   payable: "À payer",
   reconcile: "Rapprochement bancaire",
@@ -78,6 +84,8 @@ export function Home({ profile }: { profile: Profile }) {
     if (tab === "expenses") return <ExpensesScreen />;
     if (tab === "dashboard") return <DashboardScreen />;
     // tab === "more"
+    if (sub === "invoices") return <InvoicesScreen />;
+    if (sub === "coffre") return <CoffreScreen profile={profile} />;
     if (sub === "reimbursements") return <ReimbursementsScreen />;
     if (sub === "payable") return <PayableScreen />;
     if (sub === "reconcile") return <ReconcileScreen profile={profile} />;

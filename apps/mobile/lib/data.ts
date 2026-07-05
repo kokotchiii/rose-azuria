@@ -748,6 +748,18 @@ export async function findDuplicateBySupplierAmount(
   return ((data ?? [])[0] as { id: string; expense_date: string; amount_ttc: number } | undefined) ?? null;
 }
 
+// ---------- Factures fournisseurs ----------
+// Toutes les factures (kind=facture), payées ou non.
+export async function fetchInvoices(): Promise<ExpenseListItem[]> {
+  const { data, error } = await supabase
+    .from("expenses")
+    .select(REIMB_SELECT)
+    .eq("kind", "facture")
+    .order("expense_date", { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as unknown as ExpenseListItem[];
+}
+
 // ---------- Échéances / À payer ----------
 // Factures avec une date d'échéance, non encore réglées (triées par échéance).
 export async function fetchPayables(): Promise<ExpenseListItem[]> {
@@ -921,4 +933,50 @@ export async function deleteGalleryPhoto(id: string, storagePath: string): Promi
   const { error } = await supabase.from("gallery_photos").delete().eq("id", id);
   if (error) throw error;
   try { await supabase.storage.from("documents").remove([storagePath]); } catch { /* best effort */ }
+}
+
+// ---------- Coffre à documents + overrides prévisionnel ----------
+export interface LibraryDoc {
+  id: string; title: string; category: string; doc_type: string | null;
+  storage_path: string; file_type: string | null; summary: string | null;
+  extracted: unknown | null; created_at: string;
+}
+
+export async function fetchLibraryDocuments(): Promise<LibraryDoc[]> {
+  const { data, error } = await supabase
+    .from("library_documents")
+    .select("id, title, category, doc_type, storage_path, file_type, summary, extracted, created_at")
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as unknown as LibraryDoc[];
+}
+
+export async function insertLibraryDocument(args: {
+  establishmentId: string; createdBy: string; title: string; category: string;
+  docType: string | null; storagePath: string; fileType: string | null;
+  summary: string | null; extracted: unknown;
+}): Promise<void> {
+  const { error } = await supabase.from("library_documents").insert({
+    establishment_id: args.establishmentId, title: args.title, category: args.category,
+    doc_type: args.docType, storage_path: args.storagePath, file_type: args.fileType,
+    summary: args.summary, extracted: args.extracted, created_by: args.createdBy,
+  });
+  if (error) throw error;
+}
+
+export async function deleteLibraryDocument(id: string, storagePath: string): Promise<void> {
+  const { error } = await supabase.from("library_documents").delete().eq("id", id);
+  if (error) throw error;
+  try { await supabase.storage.from("documents").remove([storagePath]); } catch { /* best effort */ }
+}
+
+export async function applyPrevisionnelOverrides(
+  establishmentId: string, patch: Record<string, number>,
+): Promise<void> {
+  const { data } = await supabase.from("previsionnel_settings").select("overrides").maybeSingle();
+  const current = ((data as { overrides?: Record<string, number> } | null)?.overrides ?? {});
+  const merged = { ...current, ...patch };
+  const { error } = await supabase.from("previsionnel_settings")
+    .upsert({ establishment_id: establishmentId, overrides: merged, updated_at: new Date().toISOString() }, { onConflict: "establishment_id" });
+  if (error) throw error;
 }
