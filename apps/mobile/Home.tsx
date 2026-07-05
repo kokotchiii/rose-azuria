@@ -22,10 +22,11 @@ import { ReconcileScreen } from "./screens/ReconcileScreen";
 import { GalleryScreen } from "./screens/GalleryScreen";
 import { InvoicesScreen } from "./screens/InvoicesScreen";
 import { CoffreScreen } from "./screens/CoffreScreen";
+import { SuiviScreen } from "./screens/SuiviScreen";
 import { BrandLogo, Screen as ScreenScroll } from "./screens/ui";
 
 type Tab = "capture" | "expenses" | "dashboard" | "more";
-type SubKey = "invoices" | "reimbursements" | "payable" | "reconcile" | "events" | "gallery" | "coffre" | "revenues" | "previsionnel" | "planned" | "suppliers" | "products" | "todos" | "export";
+type SubKey = "suivi" | "invoices" | "reimbursements" | "payable" | "reconcile" | "events" | "gallery" | "coffre" | "revenues" | "previsionnel" | "planned" | "suppliers" | "products" | "todos" | "export";
 
 const TABS: { key: Tab; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { key: "capture", label: "Capturer", icon: "camera" },
@@ -35,6 +36,7 @@ const TABS: { key: Tab; label: string; icon: keyof typeof Ionicons.glyphMap }[] 
 ];
 
 const SUBS: { key: SubKey; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+  { key: "suivi", label: "Suivi (objectifs)", icon: "flag-outline" },
   { key: "invoices", label: "Factures", icon: "document-text-outline" },
   { key: "reimbursements", label: "Notes de frais", icon: "wallet-outline" },
   { key: "payable", label: "À payer (échéances)", icon: "card-outline" },
@@ -56,6 +58,7 @@ const TITLES: Record<Tab | SubKey, string> = {
   expenses: "Dépenses",
   dashboard: "Tableau de bord",
   more: "Plus",
+  suivi: "Suivi",
   invoices: "Factures",
   coffre: "Coffre à documents",
   reimbursements: "Notes de frais",
@@ -84,6 +87,7 @@ export function Home({ profile }: { profile: Profile }) {
     if (tab === "expenses") return <ExpensesScreen />;
     if (tab === "dashboard") return <DashboardScreen />;
     // tab === "more"
+    if (sub === "suivi") return <SuiviScreen />;
     if (sub === "invoices") return <InvoicesScreen />;
     if (sub === "coffre") return <CoffreScreen profile={profile} />;
     if (sub === "reimbursements") return <ReimbursementsScreen />;
