@@ -21,6 +21,7 @@ import {
   servicesPerWeekdayOf, DEFAULT_OPEN_SCHEDULE, DEFAULT_OPENING_DATE, type DaySchedule,
 } from "../lib/settings";
 import { fmtDate, fmtEUR, parseAmount, todayISO } from "../lib/format";
+import { supabase } from "../supabaseClient";
 import { colors, radius, space, TOUCH, type } from "../theme";
 import { Card, DateField, Empty, Kpi, Loading, Pill, Screen, SectionTitle, Segmented, Select } from "./ui";
 
@@ -82,6 +83,15 @@ export function RevenuesScreen({ profile }: { profile: Profile }) {
       .finally(() => setLoading(false));
   }
   useEffect(load, []);
+
+  // Temps réel : recharge dès qu'une recette change (autre appareil).
+  useEffect(() => {
+    const channel = supabase
+      .channel("revenues-live")
+      .on("postgres_changes", { event: "*", schema: "public", table: "revenues" }, () => load())
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, []);
 
   return (
     <Screen scrollRef={scrollRef}>

@@ -1,12 +1,13 @@
 // Page Recettes : saisie du CA par service + stats clés.
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 import type { Profile } from "@resto/shared";
 import {
   fetchRevenues, upsertRevenue, deleteRevenue, totalOf,
   type RevenueRow, type Service,
 } from "../lib/revenues";
+import { supabase } from "../supabaseClient";
 import { fmtEUR, fmtDate, todayISO, startOfMonthISO } from "../lib/format";
 
 interface Props { profile: Profile; }
@@ -37,7 +38,7 @@ export function Revenues({ profile }: Props) {
   const [saving, setSaving]     = useState(false);
   const [msg, setMsg]           = useState<string | null>(null);
 
-  async function reload() {
+  const reload = useCallback(async () => {
     setLoading(true);
     try {
       const r = await fetchRevenues({ from, to });
@@ -45,9 +46,18 @@ export function Revenues({ profile }: Props) {
     } finally {
       setLoading(false);
     }
-  }
+  }, [from, to]);
 
-  useEffect(() => { reload(); /* eslint-disable-next-line */ }, [from, to]);
+  useEffect(() => { reload(); }, [reload]);
+
+  // Temps réel : dès qu'une recette change (autre appareil), on recharge.
+  useEffect(() => {
+    const ch = supabase
+      .channel("rt-revenues")
+      .on("postgres_changes", { event: "*", schema: "public", table: "revenues" }, () => reload())
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, [reload]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -184,6 +194,7 @@ export function Revenues({ profile }: Props) {
       <div className="filters" style={{ marginTop: "1.5rem" }}>
         <label>Du <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
         <label>Au <input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></label>
+        <button className="link" onClick={() => reload()}>↻ Rafraîchir</button>
       </div>
 
       {/* KPIs */}
