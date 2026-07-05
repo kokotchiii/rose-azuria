@@ -253,11 +253,11 @@ const s = StyleSheet.create({
   pillText: { ...type.small, fontFamily: fonts.medium, color: colors.text },
   pillTextActive: { fontFamily: fonts.semibold, color: colors.white },
 
-  segment: { flexDirection: "row", backgroundColor: colors.chipBg, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, padding: 3, gap: 3 },
-  segmentItem: { flex: 1, minHeight: 40, alignItems: "center", justifyContent: "center", paddingHorizontal: 4, borderRadius: radius.md - 3 },
-  segmentItemActive: { backgroundColor: colors.primary, ...shadow.card },
-  segmentText: { ...type.small, fontFamily: fonts.semibold, color: colors.text },
-  segmentTextActive: { color: colors.white },
+  segment: { flexDirection: "row", backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: 3, gap: 2 },
+  segmentItem: { flex: 1, minHeight: 38, alignItems: "center", justifyContent: "center", paddingHorizontal: 4, borderRadius: radius.md - 3 },
+  segmentItemActive: { backgroundColor: colors.surface, ...shadow.card },
+  segmentText: { ...type.small, fontFamily: fonts.medium, color: colors.textMuted },
+  segmentTextActive: { fontFamily: fonts.semibold, color: colors.text },
 
   selectField: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: space.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: space.md, minHeight: 48, backgroundColor: colors.surface },
   selectValue: { fontSize: 16, color: colors.text, flex: 1 },

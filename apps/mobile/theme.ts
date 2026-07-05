@@ -1,27 +1,27 @@
-// Design tokens — refonte « Rose » : minimalisme éditorial chaud.
-// Typo : Playfair Display (titres / grands chiffres) + Karla (UI / corps).
-// Palette rouge appétissant + or, validée par le skill ui-ux-pro-max.
+// Design tokens — refonte « Rose » : épuré / moderne (style Notion/Linear).
+// Fond neutre clair, cartes nettes, accent bordeaux-rosé profond (chic).
+// Typo : Playfair Display réservé aux grands chiffres/titres héros + Karla partout.
 
 export const colors = {
-  primary:      "#DC2626", // rouge — actions principales
-  primaryPress: "#B91C1C", // état pressé
-  primarySoft:  "#FCE5E5", // teinte douce (puces actives, fonds subtils)
-  secondary:    "#F87171",
-  gold:         "#CA8A04", // accent / CTA secondaire
-  goldSoft:     "#FEF3C7",
-  bg:           "#FEF4F3", // fond rosé clair, chaud
+  primary:      "#7C2D48", // bordeaux-rosé profond — actions principales, chic
+  primaryPress: "#611F37", // état pressé
+  primarySoft:  "#F4E7EC", // teinte douce (puces actives, fonds subtils)
+  secondary:    "#A65A72", // mauve-rosé désaturé
+  gold:         "#9A7B3F", // accent secondaire discret (laiton)
+  goldSoft:     "#F3EEE2",
+  bg:           "#FAFAF9", // fond neutre chaud, très clair
   surface:      "#FFFFFF",
-  surfaceAlt:   "#FBE9E9",
-  text:         "#431407", // encre brun profond (contraste fort)
-  textMuted:    "#6B5563", // texte secondaire (≥4.5:1 sur blanc)
-  border:       "#F1DEDE", // bordure douce
-  borderStrong: "#E2C7C7",
+  surfaceAlt:   "#F4F3F1",
+  text:         "#1C1A19", // encre quasi-noire (contraste fort)
+  textMuted:    "#78716C", // texte secondaire (≥4.5:1 sur blanc)
+  border:       "#ECEAE7", // bordure très subtile
+  borderStrong: "#DED9D4",
   success:      "#15803D",
   successBg:    "#DCFCE7",
-  danger:       "#B91C1C",
-  dangerBg:     "#FEE2E2",
+  danger:       "#B4232B",
+  dangerBg:     "#FBE9EA",
   white:        "#FFFFFF",
-  chipBg:       "#F7ECEC",
+  chipBg:       "#F2F0ED",
 } as const;
 
 // Familles de police (noms exportés par @expo-google-fonts, chargés dans App.tsx).
@@ -44,39 +44,40 @@ export const space = {
 } as const;
 
 export const radius = {
-  sm: 10,
-  md: 14,
-  lg: 18,
-  xl: 24,
+  sm: 8,
+  md: 12,
+  lg: 16,
+  xl: 20,
   pill: 999,
 } as const;
 
-// Échelle typographique (style éditorial : titres serif, libellés capitales espacées).
+// Échelle typographique — moderne : serif réservé aux grands chiffres/héros,
+// sans-serif (Karla) pour titres et corps. Libellés en capitales espacées.
 export const type = {
   display: { fontFamily: fonts.display,     fontSize: 34, letterSpacing: -0.5 },
-  h1:      { fontFamily: fonts.display,     fontSize: 28, letterSpacing: -0.4 },
-  h2:      { fontFamily: fonts.displaySemi, fontSize: 22, letterSpacing: -0.2 },
-  title:   { fontFamily: fonts.semibold,    fontSize: 17 },
-  body:    { fontFamily: fonts.body,        fontSize: 16 },
-  label:   { fontFamily: fonts.bold,        fontSize: 12, letterSpacing: 0.8, textTransform: "uppercase" },
+  h1:      { fontFamily: fonts.semibold,    fontSize: 26, letterSpacing: -0.4 },
+  h2:      { fontFamily: fonts.semibold,    fontSize: 20, letterSpacing: -0.2 },
+  title:   { fontFamily: fonts.semibold,    fontSize: 16 },
+  body:    { fontFamily: fonts.body,        fontSize: 15.5 },
+  label:   { fontFamily: fonts.semibold,    fontSize: 11.5, letterSpacing: 0.6, textTransform: "uppercase" },
   small:   { fontFamily: fonts.body,        fontSize: 13 },
 } as const;
 
-// Ombres douces, deux niveaux (cartes vs éléments surélevés).
+// Ombres neutres et discrètes (look épuré).
 export const shadow = {
   card: {
-    shadowColor: "#7F1D1D",
-    shadowOpacity: 0.06,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 2,
+    shadowColor: "#1C1A19",
+    shadowOpacity: 0.05,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 1,
   },
   lifted: {
-    shadowColor: "#7F1D1D",
-    shadowOpacity: 0.12,
-    shadowRadius: 22,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 7,
+    shadowColor: "#1C1A19",
+    shadowOpacity: 0.10,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 6,
   },
 } as const;
 
