@@ -10,6 +10,18 @@ import { Card, Empty, Loading, Screen, Segmented } from "./ui";
 
 type Tab = "topay" | "paid";
 
+function payerName(e: ExpenseListItem): string {
+  return e.payer?.full_name ?? "Société (Azuria)";
+}
+
+// Statut synchronisé avec les notes de frais.
+function statusOf(e: ExpenseListItem): { label: string; ok: boolean } {
+  if (!e.paid) return { label: "À payer au fournisseur", ok: false };
+  if (e.reimbursable && !e.reimbursed) return { label: `À rembourser à ${payerName(e)}`, ok: false };
+  if (e.reimbursable && e.reimbursed) return { label: `Remboursée à ${payerName(e)}`, ok: true };
+  return { label: "Payée", ok: true };
+}
+
 export function InvoicesScreen() {
   const [items, setItems] = useState<ExpenseListItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -66,35 +78,47 @@ export function InvoicesScreen() {
         <Empty icon={tab === "topay" ? "checkmark-done-outline" : "document-text-outline"}
           text={tab === "topay" ? "Aucune facture en attente. 🎉" : "Aucune facture payée."} />
       ) : (
-        rows.map((e) => (
-          <Card key={e.id}>
-            <View style={styles.row}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.supplier} numberOfLines={1}>{e.supplier?.name ?? "Sans fournisseur"}</Text>
-                <Text style={styles.meta}>
-                  {fmtDate(e.expense_date)}{e.due_date ? ` · éch. ${fmtDate(e.due_date)}` : ""}{e.invoice_number ? ` · ${e.invoice_number}` : ""}
-                </Text>
-                <View style={styles.badges}>
-                  {e.reconciled
-                    ? <Text style={[styles.badge, styles.badgeOk]}>pointée banque</Text>
-                    : <Text style={[styles.badge, styles.badgeWarn]}>non pointée</Text>}
+        rows.map((e) => {
+          const st = statusOf(e);
+          const pendingRefund = e.paid && e.reimbursable && !e.reimbursed;
+          return (
+            <Card key={e.id}>
+              <View style={styles.row}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.supplier} numberOfLines={1}>{e.supplier?.name ?? "Sans fournisseur"}</Text>
+                  <Text style={styles.meta}>
+                    {fmtDate(e.expense_date)}{e.due_date ? ` · éch. ${fmtDate(e.due_date)}` : ""}{e.invoice_number ? ` · ${e.invoice_number}` : ""}
+                  </Text>
+                  <Text style={styles.payer}>Payé par : {payerName(e)}</Text>
+                  <View style={styles.badges}>
+                    <Text style={[styles.badge, st.ok ? styles.badgeOk : styles.badgeWarn]}>{st.label}</Text>
+                  </View>
+                  <View style={styles.badges}>
+                    {e.reconciled
+                      ? <Text style={[styles.badge, styles.badgeOk]}>pointée banque</Text>
+                      : <Text style={[styles.badge, styles.badgeWarn]}>non pointée</Text>}
+                  </View>
                 </View>
+                <Text style={styles.amount}>{fmtEUR(Number(e.amount_ttc))}</Text>
               </View>
-              <Text style={styles.amount}>{fmtEUR(Number(e.amount_ttc))}</Text>
-            </View>
-            <Pressable
-              onPress={() => togglePaid(e, tab === "topay")}
-              disabled={busy !== null}
-              style={({ pressed }) => [styles.action, tab === "topay" ? styles.actionPay : styles.actionUndo, pressed && { opacity: 0.85 }]}
-            >
-              {busy === e.id ? <ActivityIndicator size="small" color={tab === "topay" ? colors.white : colors.danger} /> : (
-                <Text style={[styles.actionText, { color: tab === "topay" ? colors.white : colors.danger }]}>
-                  {tab === "topay" ? "✓ Marquer payée" : "↶ Remettre à payer"}
-                </Text>
+              {pendingRefund ? (
+                <Text style={styles.hint}>Se règle dans « Notes de frais »</Text>
+              ) : (
+                <Pressable
+                  onPress={() => togglePaid(e, tab === "topay")}
+                  disabled={busy !== null}
+                  style={({ pressed }) => [styles.action, tab === "topay" ? styles.actionPay : styles.actionUndo, pressed && { opacity: 0.85 }]}
+                >
+                  {busy === e.id ? <ActivityIndicator size="small" color={tab === "topay" ? colors.white : colors.danger} /> : (
+                    <Text style={[styles.actionText, { color: tab === "topay" ? colors.white : colors.danger }]}>
+                      {tab === "topay" ? "✓ Valider le paiement" : "↶ Remettre à payer"}
+                    </Text>
+                  )}
+                </Pressable>
               )}
-            </Pressable>
-          </Card>
-        ))
+            </Card>
+          );
+        })
       )}
     </Screen>
   );
@@ -108,6 +132,8 @@ const styles = StyleSheet.create({
   row: { flexDirection: "row", alignItems: "flex-start", gap: space.sm },
   supplier: { ...type.title, color: colors.text },
   meta: { ...type.small, color: colors.textMuted, marginTop: 2 },
+  payer: { ...type.small, color: colors.text, marginTop: 4 },
+  hint: { ...type.small, color: colors.textMuted, marginTop: space.sm, textAlign: "center" },
   badges: { flexDirection: "row", marginTop: 6 },
   badge: { ...type.small, fontSize: 11, paddingHorizontal: 8, paddingVertical: 2, borderRadius: radius.pill, overflow: "hidden" },
   badgeOk: { backgroundColor: colors.successBg, color: colors.success },

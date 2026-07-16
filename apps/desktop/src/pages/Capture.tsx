@@ -189,10 +189,11 @@ export function Capture({ profile }: Props) {
       // payer_id = null veut dire "Azuria (société) a payé directement"
       const payerId = form.payer_id === AZURIA ? null : form.payer_id;
 
-      // Payé sur le coup (espèces / CB) ou dépannage => déjà réglé, pas d'échéance.
-      // Seule une FACTURE réglée par VIREMENT reste "à payer".
+      // Le fournisseur est réglé si : dépannage, OU un payeur PERSO a avancé
+      // l'argent (note de frais), OU paiement comptant (espèces/CB) par la société.
+      // Seule une FACTURE que la SOCIÉTÉ doit encore régler (virement) reste "à payer".
       const paidOnSpot = form.payment_source !== "virement";
-      const isPaid = form.kind === "depannage" ? true : paidOnSpot;
+      const isPaid = form.kind === "depannage" || payerId !== null ? true : paidOnSpot;
       const dueDate = form.kind === "facture" && !isPaid ? (form.due_date || null) : null;
       // Un payeur PERSO (≠ société) a avancé l'argent => à rembourser (note de frais).
       const isReimbursable = payerId !== null;

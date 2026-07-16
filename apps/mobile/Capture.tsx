@@ -379,7 +379,8 @@ export function Capture({ profile }: Props) {
       // Seule une FACTURE réglée par VIREMENT reste "à payer".
       const payerId = form.payer_id === AZURIA ? null : form.payer_id;
       const paidOnSpot = form.payment_source !== "virement";
-      const isPaid = form.kind === "depannage" ? true : paidOnSpot;
+      // Payeur PERSO => le fournisseur est réglé (reste à rembourser la personne).
+      const isPaid = form.kind === "depannage" || payerId !== null ? true : paidOnSpot;
       const dueDate = form.kind === "facture" && !isPaid ? (form.due_date || null) : null;
       // Un payeur PERSO (≠ société) a avancé l'argent => à rembourser (note de frais).
       const isReimbursable = payerId !== null;
