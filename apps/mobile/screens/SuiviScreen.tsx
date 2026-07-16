@@ -17,6 +17,7 @@ const WEEK_UNITS = SVC.reduce((a, b) => a + b, 0); // 11
 const JOURS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
 
 const revTotal = (r: RevenueRow) => Number(r.amount_cash) + Number(r.amount_cb) + Number(r.amount_other);
+const fmt0 = (n: number) => fmtEUR(Math.round(n));
 const wd = (d: Date) => (d.getDay() + 6) % 7;
 const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 function mondayOf(d: Date) { const m = new Date(d); m.setDate(d.getDate() - wd(d)); m.setHours(0, 0, 0, 0); return m; }
@@ -123,29 +124,29 @@ export function SuiviScreen() {
       {/* Jour par jour */}
       <Text style={styles.h}>Jour par jour</Text>
       <Card style={{ gap: 0 }}>
+        <View style={[styles.drow, styles.dheadRow]}>
+          <Text style={[styles.dlabel, styles.dhead]}>Jour</Text>
+          <Text style={[styles.dca, styles.dhead]}>CA</Text>
+          <Text style={[styles.dcov, styles.dhead]}>Couv.</Text>
+          <Text style={[styles.dpct, styles.dhead]}>% obj</Text>
+        </View>
         {current.days.map((d, i) => {
           const obj = d.planned * OBJ_TTC;
           const p = obj ? d.ca / obj : 0;
           const closed = d.planned === 0;
           return (
             <View key={i} style={[styles.drow, i < 6 && styles.drowBorder]}>
-              <Text style={[styles.dlabel, d.isToday && { color: colors.primary, fontFamily: "Karla_700Bold" }]}>
-                {d.label}{d.isToday ? " ·auj." : ""}{closed ? " (fermé)" : ""}
+              <Text style={[styles.dlabel, d.isToday && styles.dToday]} numberOfLines={1}>
+                {d.label}{d.isToday ? " · auj." : ""}{closed ? " · fermé" : ""}
               </Text>
-              <Text style={styles.dca}>{d.hasData ? fmtEUR(d.ca) : closed ? "—" : d.isFuture ? "à venir" : "—"}</Text>
-              <Text style={styles.dcov}>{d.covers || (closed ? "" : "")}</Text>
+              <Text style={styles.dca}>{d.hasData ? fmt0(d.ca) : closed ? "—" : d.isFuture ? "à venir" : "—"}</Text>
+              <Text style={styles.dcov}>{d.covers || "—"}</Text>
               <Text style={[styles.dpct, { color: d.hasData && obj ? pctClass(p) : colors.textMuted }]}>
-                {d.hasData && obj ? `${Math.round(p * 100)}%` : closed ? "" : "—"}
+                {d.hasData && obj ? `${Math.round(p * 100)} %` : "—"}
               </Text>
             </View>
           );
         })}
-        <View style={[styles.drow, { marginTop: 4 }]}>
-          <Text style={[styles.dlabel, styles.dhead]}>Jour</Text>
-          <Text style={[styles.dca, styles.dhead]}>CA</Text>
-          <Text style={[styles.dcov, styles.dhead]}>Couv.</Text>
-          <Text style={[styles.dpct, styles.dhead]}>% obj</Text>
-        </View>
       </Card>
 
       {/* Semaines précédentes */}
@@ -153,16 +154,23 @@ export function SuiviScreen() {
         <>
           <Text style={styles.h}>Semaines précédentes</Text>
           <Card style={{ gap: 0 }}>
+            <View style={[styles.wrow, styles.dheadRow]}>
+              <Text style={[styles.wdate, styles.dhead]}>Semaine</Text>
+              <Text style={[styles.wca, styles.dhead]}>CA</Text>
+              <Text style={[styles.wcov, styles.dhead]}>Couv.</Text>
+              <Text style={[styles.wt, styles.dhead]}>Ticket</Text>
+              <Text style={[styles.wpct, styles.dhead]}>% obj</Text>
+            </View>
             {past.map((w, i) => {
               const p = w.objective ? w.ca / w.objective : 0;
               const t = w.covers > 0 ? w.ca / w.covers : 0;
               return (
                 <View key={w.mondayISO} style={[styles.wrow, i < past.length - 1 && styles.drowBorder]}>
-                  <Text style={styles.wdate}>sem. {w.mondayISO.slice(5)}</Text>
-                  <Text style={styles.wca}>{fmtEUR(w.ca)}</Text>
+                  <Text style={styles.wdate}>{w.mondayISO.slice(8)}/{w.mondayISO.slice(5, 7)}</Text>
+                  <Text style={styles.wca}>{fmt0(w.ca)}</Text>
                   <Text style={styles.wcov}>{w.covers || "—"}</Text>
                   <Text style={styles.wt}>{t > 0 ? fmtEUR(t) : "—"}</Text>
-                  <Text style={[styles.wpct, { color: pctClass(p) }]}>{Math.round(p * 100)}%</Text>
+                  <Text style={[styles.wpct, { color: pctClass(p) }]}>{Math.round(p * 100)} %</Text>
                 </View>
               );
             })}
@@ -205,6 +213,8 @@ const styles = StyleSheet.create({
   barProj: { position: "absolute", top: -3, width: 2, height: 16, backgroundColor: colors.text },
   drow: { flexDirection: "row", alignItems: "center", paddingVertical: 9 },
   drowBorder: { borderBottomWidth: 1, borderBottomColor: colors.border },
+  dheadRow: { borderBottomWidth: 1, borderBottomColor: colors.borderStrong, paddingTop: 0, paddingBottom: 7 },
+  dToday: { color: colors.primary, fontFamily: "Karla_700Bold" },
   dlabel: { flex: 1.4, ...type.body, color: colors.text },
   dca: { flex: 1.2, ...type.body, color: colors.text, textAlign: "right" },
   dcov: { flex: 0.8, ...type.small, color: colors.textMuted, textAlign: "right" },
