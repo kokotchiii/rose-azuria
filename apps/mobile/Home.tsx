@@ -23,81 +23,105 @@ import { GalleryScreen } from "./screens/GalleryScreen";
 import { InvoicesScreen } from "./screens/InvoicesScreen";
 import { CoffreScreen } from "./screens/CoffreScreen";
 import { SuiviScreen } from "./screens/SuiviScreen";
+import { AccueilScreen, type GoKey } from "./screens/AccueilScreen";
 import { BrandLogo, Screen as ScreenScroll } from "./screens/ui";
 
-type Tab = "capture" | "expenses" | "dashboard" | "more";
-type SubKey = "suivi" | "invoices" | "reimbursements" | "payable" | "reconcile" | "events" | "gallery" | "coffre" | "revenues" | "previsionnel" | "planned" | "suppliers" | "products" | "todos" | "export";
+type Tab = "accueil" | "capture" | "suivi" | "more";
+type SubKey =
+  | "expenses" | "invoices" | "payable" | "reimbursements" | "reconcile"
+  | "revenues" | "dashboard" | "events"
+  | "previsionnel" | "planned" | "coffre"
+  | "gallery"
+  | "suppliers" | "products" | "todos" | "export";
 
 const TABS: { key: Tab; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+  { key: "accueil", label: "Accueil", icon: "home" },
   { key: "capture", label: "Capturer", icon: "camera" },
-  { key: "expenses", label: "Dépenses", icon: "receipt" },
-  { key: "dashboard", label: "Bord", icon: "stats-chart" },
+  { key: "suivi", label: "Suivi", icon: "stats-chart" },
   { key: "more", label: "Plus", icon: "grid" },
 ];
 
-const SUBS: { key: SubKey; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
-  { key: "suivi", label: "Suivi (objectifs)", icon: "flag-outline" },
-  { key: "invoices", label: "Factures", icon: "document-text-outline" },
-  { key: "reimbursements", label: "Notes de frais", icon: "wallet-outline" },
-  { key: "payable", label: "À payer (échéances)", icon: "card-outline" },
-  { key: "reconcile", label: "Rapprochement bancaire", icon: "git-compare-outline" },
-  { key: "events", label: "Événements", icon: "sparkles-outline" },
-  { key: "gallery", label: "Galerie photos", icon: "images-outline" },
-  { key: "coffre", label: "Coffre à documents", icon: "folder-outline" },
-  { key: "revenues", label: "Recettes", icon: "cash-outline" },
-  { key: "previsionnel", label: "Prévisionnel", icon: "trending-up-outline" },
-  { key: "planned", label: "À prévoir", icon: "construct-outline" },
-  { key: "suppliers", label: "Fournisseurs", icon: "storefront-outline" },
-  { key: "products", label: "Produits récurrents", icon: "cart-outline" },
-  { key: "todos", label: "À faire", icon: "checkmark-done-outline" },
-  { key: "export", label: "Export comptable", icon: "share-outline" },
+// Menu « Plus » rangé par sections pour ne plus avoir une longue liste.
+const SECTIONS: { title: string; items: { key: SubKey; label: string; icon: keyof typeof Ionicons.glyphMap }[] }[] = [
+  {
+    title: "Argent & factures",
+    items: [
+      { key: "expenses", label: "Dépenses", icon: "receipt-outline" },
+      { key: "invoices", label: "Factures", icon: "document-text-outline" },
+      { key: "payable", label: "À payer (échéances)", icon: "card-outline" },
+      { key: "reimbursements", label: "Notes de frais", icon: "wallet-outline" },
+      { key: "reconcile", label: "Rapprochement bancaire", icon: "git-compare-outline" },
+    ],
+  },
+  {
+    title: "Activité",
+    items: [
+      { key: "revenues", label: "Recettes", icon: "cash-outline" },
+      { key: "dashboard", label: "Tableau de bord", icon: "pie-chart-outline" },
+      { key: "events", label: "Événements", icon: "sparkles-outline" },
+    ],
+  },
+  {
+    title: "Prévision & documents",
+    items: [
+      { key: "previsionnel", label: "Prévisionnel", icon: "trending-up-outline" },
+      { key: "planned", label: "À prévoir", icon: "construct-outline" },
+      { key: "coffre", label: "Coffre à documents", icon: "folder-outline" },
+      { key: "gallery", label: "Galerie photos", icon: "images-outline" },
+    ],
+  },
+  {
+    title: "Référentiel & réglages",
+    items: [
+      { key: "suppliers", label: "Fournisseurs", icon: "storefront-outline" },
+      { key: "products", label: "Produits récurrents", icon: "cart-outline" },
+      { key: "todos", label: "À faire", icon: "checkmark-done-outline" },
+      { key: "export", label: "Export comptable", icon: "share-outline" },
+    ],
+  },
 ];
 
 const TITLES: Record<Tab | SubKey, string> = {
-  capture: "Nouvelle dépense",
-  expenses: "Dépenses",
-  dashboard: "Tableau de bord",
-  more: "Plus",
-  suivi: "Suivi",
-  invoices: "Factures",
-  coffre: "Coffre à documents",
-  reimbursements: "Notes de frais",
-  payable: "À payer",
-  reconcile: "Rapprochement bancaire",
-  events: "Événements",
-  gallery: "Galerie photos",
-  revenues: "Recettes",
-  previsionnel: "Prévisionnel",
-  planned: "À prévoir",
-  suppliers: "Fournisseurs",
-  products: "Produits récurrents",
-  todos: "À faire",
-  export: "Export comptable",
+  accueil: "Rose", capture: "Nouvelle dépense", suivi: "Suivi", more: "Plus",
+  expenses: "Dépenses", invoices: "Factures", payable: "À payer",
+  reimbursements: "Notes de frais", reconcile: "Rapprochement bancaire",
+  revenues: "Recettes", dashboard: "Tableau de bord", events: "Événements",
+  previsionnel: "Prévisionnel", planned: "À prévoir", coffre: "Coffre à documents",
+  gallery: "Galerie photos", suppliers: "Fournisseurs", products: "Produits récurrents",
+  todos: "À faire", export: "Export comptable",
 };
 
 export function Home({ profile }: { profile: Profile }) {
-  const [tab, setTab] = useState<Tab>("capture");
+  const [tab, setTab] = useState<Tab>("accueil");
   const [sub, setSub] = useState<SubKey | null>(null);
 
   const title = sub ? TITLES[sub] : TITLES[tab];
   const showBack = tab === "more" && sub !== null;
 
+  // Navigation depuis l'accueil (boutons/alertes) vers n'importe quel écran.
+  function goTo(k: GoKey) {
+    if (k === "capture") { setTab("capture"); setSub(null); }
+    else if (k === "suivi") { setTab("suivi"); setSub(null); }
+    else { setTab("more"); setSub(k as SubKey); }
+  }
+
   function renderBody() {
+    if (tab === "accueil") return <AccueilScreen profile={profile} onGo={goTo} />;
     if (tab === "capture") return <Capture profile={profile} />;
-    if (tab === "expenses") return <ExpensesScreen />;
-    if (tab === "dashboard") return <DashboardScreen />;
+    if (tab === "suivi") return <SuiviScreen />;
     // tab === "more"
-    if (sub === "suivi") return <SuiviScreen />;
+    if (sub === "expenses") return <ExpensesScreen />;
     if (sub === "invoices") return <InvoicesScreen />;
-    if (sub === "coffre") return <CoffreScreen profile={profile} />;
-    if (sub === "reimbursements") return <ReimbursementsScreen />;
     if (sub === "payable") return <PayableScreen />;
+    if (sub === "reimbursements") return <ReimbursementsScreen />;
     if (sub === "reconcile") return <ReconcileScreen profile={profile} />;
-    if (sub === "events") return <EventsScreen profile={profile} />;
-    if (sub === "gallery") return <GalleryScreen profile={profile} />;
     if (sub === "revenues") return <RevenuesScreen profile={profile} />;
+    if (sub === "dashboard") return <DashboardScreen />;
+    if (sub === "events") return <EventsScreen profile={profile} />;
     if (sub === "previsionnel") return <PrevisionnelScreen />;
     if (sub === "planned") return <PlannedScreen profile={profile} />;
+    if (sub === "coffre") return <CoffreScreen profile={profile} />;
+    if (sub === "gallery") return <GalleryScreen profile={profile} />;
     if (sub === "suppliers") return <SuppliersScreen />;
     if (sub === "products") return <ProductsScreen />;
     if (sub === "todos") return <TodosScreen profile={profile} />;
@@ -112,14 +136,14 @@ export function Home({ profile }: { profile: Profile }) {
       <View style={styles.header}>
         {showBack ? (
           <Pressable onPress={() => setSub(null)} hitSlop={12} accessibilityRole="button" accessibilityLabel="Retour" style={styles.headerBtn}>
-            <Ionicons name="chevron-back" size={24} color={colors.text} />
+            <Ionicons name="chevron-back" size={26} color={colors.text} />
           </Pressable>
         ) : (
-          <View style={styles.headerBtn}><BrandLogo size={36} /></View>
+          <View style={styles.headerBtn}><BrandLogo size={34} /></View>
         )}
         <Text style={styles.title} numberOfLines={1}>{title}</Text>
         <Pressable onPress={() => supabase.auth.signOut()} hitSlop={12} accessibilityRole="button" accessibilityLabel="Se déconnecter" style={styles.headerBtn}>
-          <Ionicons name="log-out-outline" size={22} color={colors.text} />
+          <Ionicons name="log-out-outline" size={22} color={colors.textMuted} />
         </Pressable>
       </View>
 
@@ -140,7 +164,7 @@ export function Home({ profile }: { profile: Profile }) {
               accessibilityLabel={t.label}
             >
               <View style={[styles.tabIcon, active && styles.tabIconActive]}>
-                <Ionicons name={t.icon} size={22} color={active ? colors.primary : colors.textMuted} />
+                <Ionicons name={t.icon} size={23} color={active ? colors.primary : colors.textMuted} />
               </View>
               <Text style={[styles.tabLabel, active && styles.tabLabelActive]}>{t.label}</Text>
             </Pressable>
@@ -154,17 +178,24 @@ export function Home({ profile }: { profile: Profile }) {
 function MoreMenu({ onPick }: { onPick: (k: SubKey) => void }) {
   return (
     <ScreenScroll>
-      {SUBS.map((item) => (
-        <Pressable
-          key={item.key}
-          style={({ pressed }) => [styles.menuItem, pressed && { opacity: 0.85 }]}
-          onPress={() => onPick(item.key)}
-          accessibilityRole="button"
-        >
-          <Ionicons name={item.icon} size={22} color={colors.primary} />
-          <Text style={styles.menuLabel}>{item.label}</Text>
-          <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
-        </Pressable>
+      {SECTIONS.map((section) => (
+        <View key={section.title} style={{ marginBottom: space.md }}>
+          <Text style={styles.sectionTitle}>{section.title}</Text>
+          <View style={styles.group}>
+            {section.items.map((item, i) => (
+              <Pressable
+                key={item.key}
+                style={({ pressed }) => [styles.menuItem, i > 0 && styles.menuDivider, pressed && { backgroundColor: colors.surfaceAlt }]}
+                onPress={() => onPick(item.key)}
+                accessibilityRole="button"
+              >
+                <View style={styles.menuIcon}><Ionicons name={item.icon} size={20} color={colors.primary} /></View>
+                <Text style={styles.menuLabel}>{item.label}</Text>
+                <Ionicons name="chevron-forward" size={19} color={colors.textMuted} />
+              </Pressable>
+            ))}
+          </View>
+        </View>
       ))}
     </ScreenScroll>
   );
@@ -177,23 +208,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.md, paddingVertical: space.sm,
     borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.surface,
   },
-  headerBtn: { minWidth: 64, minHeight: 40, justifyContent: "center" },
-  brand: { ...type.h1, fontSize: 24, color: colors.primary },
-  title: { ...type.title, color: colors.text, flex: 1, textAlign: "center" },
+  headerBtn: { minWidth: 60, minHeight: 40, justifyContent: "center" },
+  title: { ...type.title, fontSize: 17, color: colors.text, flex: 1, textAlign: "center" },
   body: { flex: 1 },
   tabbar: {
     flexDirection: "row", borderTopWidth: 1, borderTopColor: colors.border,
     backgroundColor: colors.surface, paddingTop: 8, paddingBottom: 8,
   },
   tab: { flex: 1, alignItems: "center", justifyContent: "center", gap: 3, minHeight: 56 },
-  tabIcon: { paddingHorizontal: 18, paddingVertical: 4, borderRadius: radius.pill },
+  tabIcon: { paddingHorizontal: 20, paddingVertical: 4, borderRadius: radius.pill },
   tabIconActive: { backgroundColor: colors.primarySoft },
   tabLabel: { ...type.small, fontSize: 11, color: colors.textMuted },
-  tabLabelActive: { ...type.label, fontSize: 11, letterSpacing: 0.3, textTransform: "none", color: colors.primary },
-  menuItem: {
-    flexDirection: "row", alignItems: "center", gap: space.md,
-    backgroundColor: colors.surface, borderRadius: radius.md, padding: space.lg,
-    borderWidth: 1, borderColor: colors.border,
-  },
-  menuLabel: { ...type.title, color: colors.text, flex: 1 },
+  tabLabelActive: { fontFamily: "Karla_700Bold", fontSize: 11, color: colors.primary },
+
+  sectionTitle: { ...type.label, color: colors.textMuted, marginBottom: 6, marginLeft: 2 },
+  group: { backgroundColor: colors.surface, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, overflow: "hidden" },
+  menuItem: { flexDirection: "row", alignItems: "center", gap: space.md, paddingHorizontal: space.md, paddingVertical: 14 },
+  menuDivider: { borderTopWidth: 1, borderTopColor: colors.border },
+  menuIcon: { width: 34, height: 34, borderRadius: radius.sm, backgroundColor: colors.primarySoft, alignItems: "center", justifyContent: "center" },
+  menuLabel: { ...type.body, color: colors.text, flex: 1 },
 });
