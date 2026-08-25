@@ -7,6 +7,7 @@ import {
   fetchRevenues, upsertRevenue, deleteRevenue, totalOf,
   type RevenueRow, type Service,
 } from "../lib/revenues";
+import { fetchBankCredits, classifyCredit, type BankCreditRow } from "../lib/queries";
 import { supabase } from "../supabaseClient";
 import { fmtEUR, fmtDate, todayISO, startOfMonthISO } from "../lib/format";
 
@@ -19,10 +20,28 @@ const SERVICES: Array<{ key: Service; label: string }> = [
   { key: "autre",   label: "Autre" },
 ];
 
+// Montant signé avec « + » explicite (les écarts se lisent mieux ainsi).
+function fmtSigned(v: number): string {
+  const s = fmtEUR(Math.abs(v));
+  if (Math.abs(v) < 0.5) return "≈ 0";
+  return (v > 0 ? "+" : "−") + s;
+}
+
+// Couleur d'un écart. Pour les espèces, un déficit (déposé < déclaré) est normal → neutre ;
+// un excédent est plus suspect. Pour la carte, tout écart marqué est signalé en orange.
+function ecartColor(v: number, isCash = false): string {
+  const a = Math.abs(v);
+  if (a < 5) return "#16a34a";                 // quasi nul → vert
+  if (isCash && v < 0) return "#6b7280";       // moins déposé que déclaré → normal, gris
+  if (a < 50) return "#6b7280";
+  return "#d97706";                            // écart notable → orange
+}
+
 export function Revenues({ profile }: Props) {
   const [from, setFrom] = useState(startOfMonthISO());
   const [to, setTo]     = useState(todayISO());
   const [rows, setRows] = useState<RevenueRow[]>([]);
+  const [credits, setCredits] = useState<BankCreditRow[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Saisie rapide
@@ -41,8 +60,12 @@ export function Revenues({ profile }: Props) {
   const reload = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await fetchRevenues({ from, to });
+      const [r, c] = await Promise.all([
+        fetchRevenues({ from, to }),
+        fetchBankCredits(from, to).catch(() => [] as BankCreditRow[]),
+      ]);
       setRows(r);
+      setCredits(c);
     } finally {
       setLoading(false);
     }
@@ -133,6 +156,27 @@ export function Revenues({ profile }: Props) {
     { name: "CB",      value: stats.cb },
     { name: "Autre",   value: stats.other },
   ].filter((x) => x.value > 0);
+
+  // ----------- Contrôle recettes (déclaré vs encaissé en banque) -----------
+  const bankCheck = useMemo(() => {
+    let carte = 0, especes = 0, autre = 0;
+    for (const c of credits) {
+      const k = classifyCredit(c.label);
+      const a = Number(c.amount) || 0;
+      if (k === "carte") carte += a;
+      else if (k === "especes") especes += a;
+      else autre += a;
+    }
+    const encaisse = carte + especes + autre;
+    return {
+      hasData: credits.length > 0,
+      carte, especes, autre, encaisse,
+      // Écarts : encaissé − déclaré. Positif = plus reçu en banque que déclaré.
+      ecartCarte: carte - stats.cb,
+      ecartEspeces: especes - stats.cash,
+      ecartTotal: encaisse - stats.total,
+    };
+  }, [credits, stats.cb, stats.cash, stats.total]);
 
   return (
     <div className="revenues-page">
@@ -243,6 +287,74 @@ export function Revenues({ profile }: Props) {
             </ResponsiveContainer>
           )}
         </div>
+      </div>
+
+      {/* Contrôle recettes : déclaré (app) vs encaissé (banque) */}
+      <div className="card" style={{ marginTop: "1.5rem" }}>
+        <h2>Contrôle des recettes (déclaré vs encaissé en banque)</h2>
+        {!bankCheck.hasData ? (
+          <p className="muted">
+            Aucun encaissement bancaire importé sur cette période. Importe le relevé qui couvre
+            ces dates depuis <b>Rapprochement bancaire</b> : les crédits (remises carte, dépôts
+            d'espèces) apparaîtront ici pour être comparés à ce que tu as saisi.
+          </p>
+        ) : (
+          <>
+            <table className="exp-table">
+              <thead>
+                <tr>
+                  <th>Mode</th>
+                  <th className="num">Déclaré (app)</th>
+                  <th className="num">Encaissé (banque)</th>
+                  <th className="num">Écart</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Carte (CB)</td>
+                  <td className="num">{fmtEUR(stats.cb)}</td>
+                  <td className="num">{fmtEUR(bankCheck.carte)}</td>
+                  <td className="num" style={{ color: ecartColor(bankCheck.ecartCarte) }}>
+                    {fmtSigned(bankCheck.ecartCarte)}
+                  </td>
+                </tr>
+                <tr>
+                  <td>Espèces</td>
+                  <td className="num">{fmtEUR(stats.cash)}</td>
+                  <td className="num">{fmtEUR(bankCheck.especes)} <span className="muted">(déposées)</span></td>
+                  <td className="num" style={{ color: ecartColor(bankCheck.ecartEspeces, true) }}>
+                    {fmtSigned(bankCheck.ecartEspeces)}
+                  </td>
+                </tr>
+                {bankCheck.autre > 0 && (
+                  <tr>
+                    <td>Autres crédits <span className="muted">(virements reçus…)</span></td>
+                    <td className="num">{stats.other > 0 ? fmtEUR(stats.other) : "—"}</td>
+                    <td className="num">{fmtEUR(bankCheck.autre)}</td>
+                    <td className="num muted">—</td>
+                  </tr>
+                )}
+                <tr style={{ fontWeight: 700, borderTop: "2px solid #d1d5db" }}>
+                  <td>Total</td>
+                  <td className="num">{fmtEUR(stats.total)}</td>
+                  <td className="num">{fmtEUR(bankCheck.encaisse)}</td>
+                  <td className="num" style={{ color: ecartColor(bankCheck.ecartTotal) }}>
+                    {fmtSigned(bankCheck.ecartTotal)}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <p className="hint" style={{ marginTop: "0.75rem" }}>
+              <b>Carte :</b> l'écart vient surtout du décalage d'encaissement (les remises tombent à J+1/J+2,
+              celles de fin de période sont créditées après). Sur un mois complet, il doit être proche de 0
+              (à la commission bancaire près).<br />
+              <b>Espèces :</b> l'app compte les espèces <i>encaissées au service</i>, la banque ne voit que
+              celles <i>déposées</i>. Un dépôt est en général inférieur (fond de caisse, dépôts espacés) ;
+              un écart anormal signale des espèces non déposées.<br />
+              <b>TVA collectée sur la période :</b> {stats.tva > 0 ? fmtEUR(stats.tva) : "— (non saisie)"} · CA HT {fmtEUR(stats.ht)}.
+            </p>
+          </>
+        )}
       </div>
 
       {/* Historique */}

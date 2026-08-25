@@ -10,8 +10,11 @@ import {
   revenueTVA,
   updateRevenue,
   upsertRevenue,
+  fetchBankCredits,
+  classifyCredit,
   type RevenueRow,
   type Service,
+  type BankCreditRow,
 } from "../lib/data";
 import { caSeries, byWeekdayAvg, project, windowStart, windowStats, type AmountFn, type Gran, type Horizon, type ScheduleCfg } from "../lib/stats";
 import { getGrowthTarget, setGrowthTarget } from "../lib/goals";
@@ -154,6 +157,24 @@ function StatsView({
     return { st, caTTC, series, byService, weekdayAvg, tva };
   }, [items, gran, svcFilter, defaultRate]);
 
+  // Contrôle vs banque : crédits (encaissements) importés sur la même fenêtre.
+  const winFrom = useMemo(() => windowStart(gran), [gran]);
+  const [credits, setCredits] = useState<BankCreditRow[]>([]);
+  useEffect(() => {
+    let alive = true;
+    fetchBankCredits(winFrom, todayISO()).then((c) => { if (alive) setCredits(c); }).catch(() => {});
+    return () => { alive = false; };
+  }, [winFrom]);
+  const bankCheck = useMemo(() => {
+    let carte = 0, especes = 0, autre = 0;
+    for (const c of credits) {
+      const k = classifyCredit(c.label);
+      const a = Number(c.amount) || 0;
+      if (k === "carte") carte += a; else if (k === "especes") especes += a; else autre += a;
+    }
+    return { has: credits.length > 0, carte, especes, autre, encaisse: carte + especes + autre };
+  }, [credits]);
+
   const granLabel = GRANS.find((g) => g.key === gran)?.label.toLowerCase() ?? "";
   const { st } = win;
 
@@ -240,6 +261,37 @@ function StatsView({
             <Text style={[styles.muted, { marginTop: space.sm }]}>
               Esp. {fmtEUR(st.cash)} · CB {fmtEUR(st.cb)} · Autre {fmtEUR(st.other)}
             </Text>
+          </Card>
+
+          <SectionTitle>Contrôle vs banque (déclaré / encaissé)</SectionTitle>
+          <Card>
+            {!bankCheck.has ? (
+              <Text style={styles.muted}>
+                Aucun encaissement bancaire importé sur cette période. Importe le relevé qui la couvre
+                depuis « Rapprochement bancaire » : remises carte et dépôts d'espèces apparaîtront ici.
+              </Text>
+            ) : (
+              <>
+                <View style={styles.ctrlRow}>
+                  <Text style={[styles.ctrlLabel, styles.muted]} />
+                  <View style={styles.ctrlNums}>
+                    <Text style={[styles.ctrlDecl, styles.muted]}>Déclaré</Text>
+                    <Text style={[styles.ctrlBank, styles.muted]}>Banque</Text>
+                    <Text style={[styles.ctrlEcart, styles.muted]}>Écart</Text>
+                  </View>
+                </View>
+                <ControlRow label="Carte (CB)" declared={st.cb} banked={bankCheck.carte} />
+                <ControlRow label="Espèces (déposées)" declared={st.cash} banked={bankCheck.especes} cash />
+                {bankCheck.autre > 0 && (
+                  <ControlRow label="Autres crédits" declared={st.other} banked={bankCheck.autre} />
+                )}
+                <ControlRow label="Total" declared={win.caTTC} banked={bankCheck.encaisse} bold />
+                <Text style={[styles.muted, { marginTop: space.sm }]}>
+                  Carte : l'écart vient surtout du décalage d'encaissement (J+1/J+2). Espèces : la banque
+                  ne voit que ce qui est déposé — normalement inférieur à l'encaissé au service.
+                </Text>
+              </>
+            )}
           </Card>
         </>
       )}
@@ -505,6 +557,29 @@ function EntryView({ profile, items, defaultRate, reload, scrollToTop }: { profi
   );
 }
 
+// Ligne du contrôle recettes : libellé + montant déclaré (app) + montant encaissé (banque) + écart.
+function ControlRow({ label, declared, banked, cash, bold }: {
+  label: string; declared: number; banked: number; cash?: boolean; bold?: boolean;
+}) {
+  const ecart = banked - declared;
+  const a = Math.abs(ecart);
+  let color: string = colors.textMuted;
+  if (a < 5) color = colors.success;
+  else if (cash && ecart < 0) color = colors.textMuted;
+  else if (a >= 50) color = colors.gold;
+  const ecartTxt = a < 0.5 ? "≈ 0" : (ecart > 0 ? "+" : "−") + fmtEUR(a);
+  return (
+    <View style={styles.ctrlRow}>
+      <Text style={[styles.ctrlLabel, bold && { fontWeight: "700", color: colors.text }]} numberOfLines={1}>{label}</Text>
+      <View style={styles.ctrlNums}>
+        <Text style={[styles.ctrlDecl, bold && { fontWeight: "700" }]}>{fmtEUR(declared)}</Text>
+        <Text style={[styles.ctrlBank, bold && { fontWeight: "700" }]}>{fmtEUR(banked)}</Text>
+        <Text style={[styles.ctrlEcart, { color }]}>{ecartTxt}</Text>
+      </View>
+    </View>
+  );
+}
+
 function Field({ label, children, flex }: { label: string; children: React.ReactNode; flex?: boolean }) {
   return (
     <View style={[{ gap: 4 }, flex && { flex: 1 }]}>
@@ -526,6 +601,12 @@ const styles = StyleSheet.create({
   schedDay: { ...type.body, color: colors.text, flex: 1 },
   kpiRow: { flexDirection: "row", gap: space.md },
   muted: { ...type.small, color: colors.textMuted },
+  ctrlRow: { flexDirection: "row", alignItems: "center", paddingVertical: 6, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  ctrlLabel: { ...type.body, color: colors.text, flex: 1.2 },
+  ctrlNums: { flexDirection: "row", flex: 2 },
+  ctrlDecl: { ...type.small, color: colors.text, flex: 1, textAlign: "right" },
+  ctrlBank: { ...type.small, color: colors.text, flex: 1, textAlign: "right" },
+  ctrlEcart: { ...type.small, flex: 1, textAlign: "right" },
   row: { flexDirection: "row", gap: space.md },
   pills: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
   label: { ...type.label, color: colors.textMuted },

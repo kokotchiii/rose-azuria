@@ -825,6 +825,30 @@ export async function fetchBankTransactions(): Promise<BankTxRow[]> {
   return (data ?? []) as unknown as BankTxRow[];
 }
 
+// Contrôle des recettes : les crédits du relevé = l'argent réellement encaissé.
+export interface BankCreditRow { tx_date: string; label: string; amount: number; }
+
+export async function fetchBankCredits(from: string, to: string): Promise<BankCreditRow[]> {
+  const { data, error } = await supabase
+    .from("bank_transactions")
+    .select("tx_date, label, amount")
+    .eq("direction", "credit")
+    .gte("tx_date", from)
+    .lte("tx_date", to)
+    .order("tx_date", { ascending: true });
+  if (error) throw error;
+  return (data ?? []) as unknown as BankCreditRow[];
+}
+
+export type CreditKind = "carte" | "especes" | "autre";
+
+export function classifyCredit(label: string): CreditKind {
+  const l = (label || "").toUpperCase();
+  if (/REMISE\s*(C\.?\s*B|CARTE|COMMER|TPE|BANCAIRE)/.test(l) || /\bTPE\b/.test(l)) return "carte";
+  if (/VERST|VERSEMENT|VERS\.?\s*ESP|REMISE\s*ESP|DEPOT\s*ESP|ESPECES|NUMERAIRE/.test(l)) return "especes";
+  return "autre";
+}
+
 export async function commitBankReconciliation(args: {
   establishmentId: string;
   createdBy: string;
