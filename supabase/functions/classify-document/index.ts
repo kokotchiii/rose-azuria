@@ -96,12 +96,12 @@ function isHeic(buf: Uint8Array, mime: string): boolean {
 }
 
 function buildPrompt(categories: string[]): string {
-  return `Tu es un assistant qui extrait les informations d'un justificatif (facture, bon de livraison, ticket ou note de frais) d'un restaurant français.
+  return `Tu es un assistant qui extrait les informations d'un DOCUMENT DE DÉPENSE d'un restaurant français. Ce document peut être une facture fournisseur, un bon de livraison, un ticket, une note de frais — MAIS AUSSI un document administratif ou officiel : appel/quittance/mise en demeure de LOYER, avis de TAXE ou d'IMPÔT, courrier de RECOUVREMENT ou d'HUISSIER, attestation/appel d'ASSURANCE, honoraires (avocat, comptable, expert), échéance de PRÊT, etc.
 
 Réponds UNIQUEMENT par un objet JSON valide (pas de texte avant ou après, pas de balises markdown), avec exactement ce schéma :
 
 {
-  "document_type": "facture" | "bon_de_livraison" | "ticket" | "note_de_frais" | "autre",
+  "document_type": "facture" | "bon_de_livraison" | "ticket" | "note_de_frais" | "loyer" | "taxe_impot" | "recouvrement" | "assurance" | "honoraires" | "pret" | "autre",
   "supplier_name": string | null,
   "supplier_siret": string | null,
   "document_date": "YYYY-MM-DD" | null,
@@ -116,10 +116,13 @@ Réponds UNIQUEMENT par un objet JSON valide (pas de texte avant ou après, pas 
   "line_items": [
     { "description": string, "quantity": number | null, "unit_price": number | null }
   ],
+  "to_coffre": boolean,
+  "coffre_category": "juridique" | "banque" | "comptable" | "bail" | "assurance" | "rh" | "autre",
+  "coffre_title": string,
   "confidence": number
 }
 
-IMPORTANT — le restaurant qui REÇOIT la facture est le CLIENT (destinataire). Tu extrais toujours les infos du FOURNISSEUR (émetteur du document), jamais celles du restaurant client.
+IMPORTANT — le restaurant qui REÇOIT le document est le CLIENT / DÉBITEUR (destinataire). Tu extrais toujours les infos de l'ÉMETTEUR (fournisseur, bailleur, Trésor Public, huissier, assureur…), jamais celles du restaurant client (Azuria / SSM REST / ROSE).
 
 ORIENTATION : le document peut être photographié DE TRAVERS ou PIVOTÉ (90°, 180°, texte couché sur le côté). Pivote mentalement l'image autant que nécessaire et lis-la quelle que soit son orientation. Ne renvoie pas null sous prétexte que l'image est tournée.
 
@@ -140,6 +143,18 @@ Règles strictes :
 - Si le document a PLUSIEURS PAGES : lis et accumule les items de TOUTES les pages (les factures Sysco/Metro/Promocash listent souvent les articles sur 2-5 pages, avec un sous-total par page). Le montant à payer (MONTANT DE LA FACTURE / NET À PAYER) fait foi pour amount_ttc.
 - "suggested_category" DOIT appartenir EXACTEMENT à cette liste : ${JSON.stringify(categories)}.
 - "confidence" est un nombre entre 0 et 1 reflétant ta certitude globale.
+
+DOCUMENTS NON-FACTURE — catégorisation (TRÈS IMPORTANT, c'est ce que l'app gère mal aujourd'hui) :
+- LOYER (appel de loyer, quittance, avis d'échéance, MISE EN DEMEURE de loyer) → document_type "loyer", suggested_category "Loyer". Le "supplier_name" est le BAILLEUR / l'agence / le syndic. amount_ttc = le montant TOTAL réclamé (attention : une mise en demeure peut cumuler PLUSIEURS mois de loyer — prends bien le total dû, pas un seul mois).
+- TAXE / IMPÔT (CFE, CVAE, taxe foncière, avis d'imposition, Trésor Public, DGFiP, taxe locale) → document_type "taxe_impot", suggested_category "Taxes". supplier_name = l'administration (Trésor Public / DGFiP / Service des impôts).
+- RECOUVREMENT / HUISSIER (mise en demeure, commandement de payer, cabinet de recouvrement, commissaire de justice) → document_type "recouvrement", suggested_category "Honoraires" (ou "Taxes" si c'est une créance fiscale). Le montant peut inclure des frais et pénalités.
+- ASSURANCE (appel de cotisation, avis d'échéance assurance) → document_type "assurance", suggested_category "Autres".
+- HONORAIRES (avocat, comptable, expert, notaire) → document_type "honoraires", suggested_category "Honoraires".
+- PRÊT (échéance/tableau d'amortissement) → document_type "pret", suggested_category "Frais bancaires".
+
+ARCHIVAGE AU COFFRE ("to_coffre") — mets to_coffre = true pour tout document IMPORTANT à conserver au-delà d'un simple justificatif : LOYER (surtout mise en demeure), TAXE/IMPÔT, RECOUVREMENT/HUISSIER, ASSURANCE, HONORAIRES juridiques, PRÊT, bail, contrat, courrier officiel/administratif. Mets to_coffre = false pour une facture fournisseur ordinaire, un ticket ou une note de frais courante.
+- "coffre_category" : classe le document (loyer/recouvrement → "juridique" ou "bail" ; taxe/impôt → "comptable" ; assurance → "assurance" ; prêt → "banque" ; honoraires → "comptable" ou "juridique"). Sinon "autre".
+- "coffre_title" : titre court et parlant (ex "Mise en demeure loyer juin-juillet", "Avis CFE 2026", "Cotisation assurance pro"). Toujours renseigné.
 - Les montants sont en euros, en number (pas de string avec "€").
 - "document_date" au format ISO YYYY-MM-DD.
 - "line_items" peut être un tableau vide si non détectable.
@@ -162,12 +177,20 @@ function validateAiJson(raw: unknown, categories: string[]) {
   if (typeof raw !== "object" || raw === null) throw new Error("ai_output_not_object");
   const o = raw as Record<string, unknown>;
 
-  const docTypes = ["facture", "bon_de_livraison", "ticket", "note_de_frais", "autre"];
+  const docTypes = ["facture", "bon_de_livraison", "ticket", "note_de_frais", "loyer", "taxe_impot", "recouvrement", "assurance", "honoraires", "pret", "autre"];
   if (typeof o.document_type !== "string" || !docTypes.includes(o.document_type)) o.document_type = "autre";
   if (typeof o.suggested_category !== "string" || !categories.includes(o.suggested_category)) o.suggested_category = "Autres";
   if (typeof o.confidence !== "number" || o.confidence < 0 || o.confidence > 1) o.confidence = 0;
   if (!Array.isArray(o.line_items)) o.line_items = [];
   o.currency = "EUR";
+
+  // Archivage Coffre : normalise les 3 champs.
+  const coffreCats = ["juridique", "banque", "comptable", "bail", "assurance", "rh", "autre"];
+  o.to_coffre = o.to_coffre === true;
+  if (typeof o.coffre_category !== "string" || !coffreCats.includes(o.coffre_category)) o.coffre_category = "autre";
+  if (typeof o.coffre_title !== "string" || !o.coffre_title.trim()) {
+    o.coffre_title = typeof o.supplier_name === "string" && o.supplier_name ? o.supplier_name : "Document";
+  }
 
   // Filet de sécu : si la somme des items > 2x amount_ttc → quantité incluse dans
   // le libellé (cas "250 cartes de visite"). On force quantity=1 partout.
@@ -213,6 +236,7 @@ Deno.serve(async (req: Request) => {
   //    de contenu par page (image ou PDF) → toutes envoyées dans un seul message.
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
   const sources: unknown[] = [];
+  let firstMediaType = "application/pdf";
   for (const path of paths) {
     const { data: fileBlob, error: dlErr } = await admin.storage.from("documents").download(path);
     if (dlErr || !fileBlob) {
@@ -220,6 +244,7 @@ Deno.serve(async (req: Request) => {
     }
     const buf = new Uint8Array(await fileBlob.arrayBuffer());
     const mediaType = fileBlob.type || "image/jpeg";
+    if (path === paths[0]) firstMediaType = mediaType;
 
     // HEIC : pas supporté côté serveur (limite mémoire). Message clair au client.
     if (isHeic(buf, mediaType)) {
@@ -315,6 +340,32 @@ Deno.serve(async (req: Request) => {
     }
   } catch (_e) {
     // Le suivi de coût ne doit jamais bloquer la réponse au client.
+  }
+
+  // Archivage automatique au Coffre pour les documents importants
+  // (loyer, taxe/impôt, recouvrement, assurance, honoraires, prêt, contrat…).
+  try {
+    const v = validated as Record<string, unknown>;
+    const establishmentId = storagePath.split("/")[0];
+    if (v.to_coffre === true && establishmentId) {
+      // Évite le doublon si ce fichier est déjà dans le Coffre.
+      const { data: existing } = await admin
+        .from("library_documents").select("id").eq("storage_path", storagePath).maybeSingle();
+      if (!existing) {
+        await admin.from("library_documents").insert({
+          establishment_id: establishmentId,
+          title: (v.coffre_title as string) || "Document",
+          category: (v.coffre_category as string) || "autre",
+          doc_type: (v.document_type as string) || "autre",
+          storage_path: storagePath,
+          file_type: firstMediaType,
+          summary: null,
+          extracted: v,
+        });
+      }
+    }
+  } catch (_e) {
+    // L'archivage Coffre ne doit jamais bloquer la réponse au client.
   }
 
   return json({ ok: true, result: validated });

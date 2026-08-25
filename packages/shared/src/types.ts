@@ -188,5 +188,9 @@ export interface AiExtraction {
     quantity: number | null;
     unit_price: number | null;
   }>;
+  // Archivage au Coffre à documents (loyer, taxe, recouvrement, contrat…).
+  to_coffre?: boolean;
+  coffre_category?: string;
+  coffre_title?: string;
   confidence: number;
 }

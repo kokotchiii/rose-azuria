@@ -21,7 +21,7 @@ export const ORDER_STATUSES = [
 ] as const;
 export type OrderStatus = (typeof ORDER_STATUSES)[number];
 
-export const DOC_TYPES = ["facture", "bon_de_livraison", "ticket", "note_de_frais", "autre"] as const;
+export const DOC_TYPES = ["facture", "bon_de_livraison", "ticket", "note_de_frais", "loyer", "taxe_impot", "recouvrement", "assurance", "honoraires", "pret", "autre"] as const;
 export type DocType = (typeof DOC_TYPES)[number];
 
 export const DEFAULT_CATEGORIES = [
