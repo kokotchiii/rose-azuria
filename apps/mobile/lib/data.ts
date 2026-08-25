@@ -861,6 +861,14 @@ function paymentPlausible(expenseDate: string, txDate: string): boolean {
   return diffDays >= -7 && diffDays <= 120;
 }
 
+function guessPaymentSource(label: string): "cb_pro" | "virement" | "especes" | null {
+  const l = (label || "").toUpperCase();
+  if (/\bCARTE\b|\bCB\b/.test(l)) return "cb_pro";
+  if (/PRLV|PRELEV|\bVIR\b|VIREMENT|ECHEANCE\s*PRET/.test(l)) return "virement";
+  if (/RETRAIT|\bDAB\b|ESPECES/.test(l)) return "especes";
+  return null;
+}
+
 export interface AutoReconcileResult {
   matched: number;
   details: Array<{ label: string; amount: number; date: string; supplier: string | null }>;
@@ -893,8 +901,11 @@ export async function autoReconcileUnmatched(toleranceDays = 5): Promise<AutoRec
     const e = cands[0];
     if (!e) continue;
     used.add(e.id);
+    const upd: Record<string, unknown> = { reconciled: true, paid: true, paid_at: tx.tx_date };
+    const ps = guessPaymentSource(tx.label);
+    if (ps) upd.payment_source = ps;
     const { error: uE } = await supabase
-      .from("expenses").update({ reconciled: true, paid: true, paid_at: tx.tx_date }).eq("id", e.id);
+      .from("expenses").update(upd).eq("id", e.id);
     if (uE) continue;
     await supabase.from("bank_transactions").update({ status: "matched", matched_expense_id: e.id }).eq("id", tx.id);
     details.push({ label: tx.label, amount: amt, date: tx.tx_date, supplier: e.supplier?.name ?? null });
@@ -915,8 +926,11 @@ export async function autoMatchExpense(
   if (cands.length !== 1) return { matched: false };
   const tx = cands[0];
   if (!tx) return { matched: false };
+  const upd: Record<string, unknown> = { reconciled: true, paid: true, paid_at: tx.tx_date };
+  const ps = guessPaymentSource(tx.label);
+  if (ps) upd.payment_source = ps;
   const { error: uE } = await supabase
-    .from("expenses").update({ reconciled: true, paid: true, paid_at: tx.tx_date }).eq("id", expenseId);
+    .from("expenses").update(upd).eq("id", expenseId);
   if (uE) throw uE;
   await supabase.from("bank_transactions").update({ status: "matched", matched_expense_id: expenseId }).eq("id", tx.id);
   return { matched: true, label: tx.label, txDate: tx.tx_date };
