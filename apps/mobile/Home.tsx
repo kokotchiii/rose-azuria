@@ -21,6 +21,7 @@ import { EventsScreen } from "./screens/EventsScreen";
 import { ReconcileScreen } from "./screens/ReconcileScreen";
 import { GalleryScreen } from "./screens/GalleryScreen";
 import { InvoicesScreen } from "./screens/InvoicesScreen";
+import { InboxScreen } from "./screens/InboxScreen";
 import { CoffreScreen } from "./screens/CoffreScreen";
 import { SuiviScreen } from "./screens/SuiviScreen";
 import { AccueilScreen, type GoKey } from "./screens/AccueilScreen";
@@ -28,6 +29,7 @@ import { BrandLogo, Screen as ScreenScroll } from "./screens/ui";
 
 type Tab = "accueil" | "capture" | "suivi" | "more";
 type SubKey =
+  | "inbox"
   | "expenses" | "invoices" | "payable" | "reimbursements" | "reconcile"
   | "revenues" | "dashboard" | "events"
   | "previsionnel" | "planned" | "coffre"
@@ -46,6 +48,7 @@ const SECTIONS: { title: string; items: { key: SubKey; label: string; icon: keyo
   {
     title: "Argent & factures",
     items: [
+      { key: "inbox", label: "Boîte de réception", icon: "mail-unread-outline" },
       { key: "expenses", label: "Dépenses", icon: "receipt-outline" },
       { key: "invoices", label: "Factures", icon: "document-text-outline" },
       { key: "payable", label: "À payer (échéances)", icon: "card-outline" },
@@ -83,6 +86,7 @@ const SECTIONS: { title: string; items: { key: SubKey; label: string; icon: keyo
 
 const TITLES: Record<Tab | SubKey, string> = {
   accueil: "Rose", capture: "Nouvelle dépense", suivi: "Suivi", more: "Plus",
+  inbox: "Boîte de réception",
   expenses: "Dépenses", invoices: "Factures", payable: "À payer",
   reimbursements: "Notes de frais", reconcile: "Rapprochement bancaire",
   revenues: "Recettes", dashboard: "Tableau de bord", events: "Événements",
@@ -110,6 +114,7 @@ export function Home({ profile }: { profile: Profile }) {
     if (tab === "capture") return <Capture profile={profile} />;
     if (tab === "suivi") return <SuiviScreen />;
     // tab === "more"
+    if (sub === "inbox") return <InboxScreen profile={profile} />;
     if (sub === "expenses") return <ExpensesScreen />;
     if (sub === "invoices") return <InvoicesScreen />;
     if (sub === "payable") return <PayableScreen />;
