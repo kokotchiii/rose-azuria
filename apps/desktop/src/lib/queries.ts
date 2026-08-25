@@ -922,6 +922,16 @@ function daysApart(a: string, b: string): number {
   return Math.abs(Math.round((da - db) / 86_400_000));
 }
 
+// Un paiement est plausible pour une facture s'il tombe entre ~1 semaine AVANT
+// la date de facture (petits écarts) et ~120 jours APRÈS (délais fournisseurs
+// 30/60/90 jours). Bien plus réaliste qu'un simple ±5 jours.
+function paymentPlausible(expenseDate: string, txDate: string): boolean {
+  const inv = new Date(expenseDate + "T00:00:00").getTime();
+  const pay = new Date(txDate + "T00:00:00").getTime();
+  const diffDays = Math.round((pay - inv) / 86_400_000);
+  return diffDays >= -7 && diffDays <= 120;
+}
+
 export interface AutoReconcileResult {
   matched: number;
   details: Array<{ label: string; amount: number; date: string; supplier: string | null }>;
@@ -958,7 +968,7 @@ export async function autoReconcileUnmatched(
     const cands = expenses.filter(
       (e) => !used.has(e.id)
         && Math.abs(Number(e.amount_ttc) - amt) < 0.01
-        && daysApart(e.expense_date, tx.tx_date) <= toleranceDays,
+        && paymentPlausible(e.expense_date, tx.tx_date),
     );
     if (cands.length !== 1) continue; // 0 = rien ; >1 = ambigu, on laisse en manuel
     const e = cands[0];
@@ -1097,7 +1107,7 @@ export async function autoMatchExpense(
     .eq("status", "unmatched");
   if (error) throw error;
   const cands = ((txs ?? []) as Array<{ id: string; tx_date: string; label: string; amount: number }>)
-    .filter((t) => Math.abs(Number(t.amount) - amount) < 0.01 && daysApart(t.tx_date, date) <= toleranceDays);
+    .filter((t) => Math.abs(Number(t.amount) - amount) < 0.01 && paymentPlausible(date, t.tx_date));
   if (cands.length !== 1) return { matched: false };
   const tx = cands[0];
   if (!tx) return { matched: false };
