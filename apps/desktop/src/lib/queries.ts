@@ -313,6 +313,16 @@ export async function fetchInvoices(): Promise<ExpenseListItem[]> {
   return (data ?? []) as unknown as ExpenseListItem[];
 }
 
+// Toutes les dépenses (factures + dépannage), enrichies, pour le Bilan.
+export async function fetchAllExpensesEnriched(): Promise<ExpenseListItem[]> {
+  const { data, error } = await supabase
+    .from("expenses")
+    .select(ENRICHED_SELECT)
+    .order("expense_date", { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as unknown as ExpenseListItem[];
+}
+
 // Factures avec une date d'échéance, non encore réglées (triées par échéance).
 export async function fetchPayables(): Promise<ExpenseListItem[]> {
   const { data, error } = await supabase

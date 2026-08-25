@@ -5,6 +5,7 @@ import { Dashboard } from "./pages/Dashboard";
 import { Suivi } from "./pages/Suivi";
 import { Capture } from "./pages/Capture";
 import { Inbox } from "./pages/Inbox";
+import { Bilan } from "./pages/Bilan";
 import { Expenses } from "./pages/Expenses";
 import { Suppliers } from "./pages/Suppliers";
 import { Products } from "./pages/Products";
@@ -22,7 +23,7 @@ import { useAuth } from "./hooks/useAuth";
 
 export function App() {
   const { session, profile, loading } = useAuth();
-  const [page, setPage] = useState<PageKey>("suivi");
+  const [page, setPage] = useState<PageKey>("bilan");
 
   if (loading) {
     return <div className="centered muted">Chargement…</div>;
@@ -33,6 +34,7 @@ export function App() {
 
   return (
     <Layout page={page} onChangePage={setPage} profile={profile}>
+      {page === "bilan"     && <Bilan onGoReconcile={() => setPage("reconcile")} onGoCapture={() => setPage("capture")} />}
       {page === "suivi"     && <Suivi />}
       {page === "dashboard" && <Dashboard />}
       {page === "capture"   && <Capture profile={profile} />}
