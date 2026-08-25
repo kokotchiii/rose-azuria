@@ -25,24 +25,51 @@ var DONE_LABEL       = 'Rose-Importe';                // posé après import (an
 
 // Fenêtre de recherche (ex '1y' = 12 mois, '6m' = 6 mois, '90d' = 90 jours).
 var NEWER_THAN  = '1y';
-// Nb de fils traités par passage (fetch rapide grâce au traitement IA en arrière-plan).
+// Nb de fils traités par passage.
 var MAX_THREADS = 50;
 // On ignore les pièces jointes plus petites que ça (logos/signatures, pas des factures).
 var MIN_BYTES   = 15000;
+// Liste blanche d'expéditeurs "toujours factures" (une partie de l'email/domaine
+// suffit). Ex : ['sysco','metro','promocash','lightspeed','engie','bouygues'].
+var SENDERS = [];
 // ===========================================================================
+
+// Vrai si le sujet / nom de fichier / expéditeur évoque une facture.
+function looksLikeInvoice(subject, from, filename) {
+  var s = ((subject || '') + ' ' + (filename || '')).toLowerCase();
+  var kw = ['facture','factures','invoice','factura','fattura','recu','reçu','quittance',
+            'echeance','échéance','avoir','abonnement','billing','receipt','note de frais',
+            'bon de commande','bon de livraison','releve','relevé','paiement','règlement',
+            'reglement','honoraires','cotisation'];
+  for (var i = 0; i < kw.length; i++) { if (s.indexOf(kw[i]) !== -1) return true; }
+  if (/\b(inv|fac|f)[-\s]?\d{3,}/.test(s)) return true;   // INV-1234, FAC 5678…
+  if (/n[°o]\s?\d{3,}/.test(s)) return true;               // n° 12345
+  var f = (from || '').toLowerCase();
+  for (var j = 0; j < SENDERS.length; j++) { if (SENDERS[j] && f.indexOf(SENDERS[j].toLowerCase()) !== -1) return true; }
+  return false;
+}
+
+function threadHasSourceLabel(thread) {
+  var ls = thread.getLabels();
+  for (var i = 0; i < ls.length; i++) { if (ls[i].getName() === SOURCE_LABEL) return true; }
+  return false;
+}
 
 function ingestInvoices() {
   var doneLabel = GmailApp.getUserLabelByName(DONE_LABEL) || GmailApp.createLabel(DONE_LABEL);
-  // Toutes les pièces jointes PDF des 12 derniers mois + tout ce que tu tagues
-  // « Facture », en excluant ce qui est déjà importé.
+  // Candidats : PDF des 12 derniers mois + tout ce que tu tagues « Facture ».
   var query = '(has:attachment filename:pdf newer_than:' + NEWER_THAN + ' OR label:' + SOURCE_LABEL + ') -label:' + DONE_LABEL;
   var threads = GmailApp.search(query, 0, MAX_THREADS);
 
   for (var i = 0; i < threads.length; i++) {
+    // Un fil tagué « Facture » est traité de force ; sinon on filtre au sujet/nom.
+    var forced = threadHasSourceLabel(threads[i]);
     var msgs = threads[i].getMessages();
     var pushed = false;
     for (var j = 0; j < msgs.length; j++) {
       var m = msgs[j];
+      var subject = m.getSubject();
+      var from = m.getFrom();
       var atts = m.getAttachments();
       for (var k = 0; k < atts.length; k++) {
         var a = atts[k];
@@ -51,6 +78,8 @@ function ingestInvoices() {
         if (mime.indexOf('pdf') === -1 && mime.indexOf('image') === -1) continue;
         // Ignore les petites images (logos, signatures, pixels de suivi).
         if (mime.indexOf('image') !== -1 && a.getSize() < MIN_BYTES) continue;
+        // TRI EN AMONT : on n'envoie à l'IA que ce qui ressemble à une facture.
+        if (!forced && !looksLikeInvoice(subject, from, a.getName())) continue;
 
         var payload = {
           secret: INGEST_SECRET,
@@ -89,4 +118,19 @@ function installerRobot() {
   ScriptApp.newTrigger('ingestInvoices').timeBased().everyMinutes(15).create();
   // Premier passage immédiat.
   ingestInvoices();
+}
+
+/** Retire le libellé « Rose-Importe » de tous les fils pour repartir propre
+ *  (à lancer une fois si tu veux que le robot reconsidère les mails avec le
+ *  nouveau filtre). Après, relance `installerRobot` ou `ingestInvoices`. */
+function reinitialiser() {
+  var l = GmailApp.getUserLabelByName(DONE_LABEL);
+  if (!l) { Logger.log('Aucun libellé ' + DONE_LABEL); return; }
+  var total = 0, batch;
+  do {
+    batch = l.getThreads(0, 100);
+    for (var i = 0; i < batch.length; i++) batch[i].removeLabel(l);
+    total += batch.length;
+  } while (batch.length === 100);
+  Logger.log('Libellé ' + DONE_LABEL + ' retiré de ' + total + ' fils.');
 }
