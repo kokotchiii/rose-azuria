@@ -23,8 +23,10 @@ var ESTABLISHMENT_ID = 'REMPLACE_PAR_TON_ESTABLISHMENT_ID';
 var SOURCE_LABEL     = 'Facture';                     // libellé optionnel pour forcer un mail
 var DONE_LABEL       = 'Rose-Importe';                // posé après import (anti-doublon)
 
-// Fenêtre de recherche (ex '1y' = 12 mois, '6m' = 6 mois, '90d' = 90 jours).
-var NEWER_THAN  = '1y';
+// Fenêtre de recherche (ex '1y' = 12 mois, '6m' = 6 mois, '30d' = 30 jours).
+// 30j = on ne ramène que les nouvelles factures au fil de l'eau (l'historique
+// se traite à part, à partir des PDF, sans crédits IA).
+var NEWER_THAN  = '30d';
 // Nb de fils traités par passage.
 var MAX_THREADS = 50;
 // On ignore les pièces jointes plus petites que ça (logos/signatures, pas des factures).
