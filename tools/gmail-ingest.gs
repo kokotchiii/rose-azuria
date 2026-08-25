@@ -20,19 +20,23 @@
 var FUNCTION_URL     = 'https://srqabjdczvckjtvftvit.supabase.co/functions/v1/ingest-email';
 var INGEST_SECRET    = 'REMPLACE_PAR_LE_SECRET';      // = INGEST_SECRET côté Supabase
 var ESTABLISHMENT_ID = 'REMPLACE_PAR_TON_ESTABLISHMENT_ID';
-var SOURCE_LABEL     = 'Factures';                    // libellé optionnel pour forcer un mail
+var SOURCE_LABEL     = 'Facture';                     // libellé optionnel pour forcer un mail
 var DONE_LABEL       = 'Rose-Importe';                // posé après import (anti-doublon)
 
-// Détection AUTOMATIQUE : mails avec pièce jointe contenant un de ces mots.
-// (La file « à valider » sert de filet : un non-facture qui passe = tu l'ignores.)
-var AUTO_QUERY = 'has:attachment newer_than:30d (facture OR factures OR invoice OR factura OR quittance OR "avis d\'échéance" OR échéance OR abonnement OR "reçu" OR reglement OR règlement)';
+// Fenêtre de recherche (ex '1y' = 12 mois, '6m' = 6 mois, '90d' = 90 jours).
+var NEWER_THAN  = '1y';
+// Nb de fils traités par passage (fetch rapide grâce au traitement IA en arrière-plan).
+var MAX_THREADS = 50;
+// On ignore les pièces jointes plus petites que ça (logos/signatures, pas des factures).
+var MIN_BYTES   = 15000;
 // ===========================================================================
 
 function ingestInvoices() {
   var doneLabel = GmailApp.getUserLabelByName(DONE_LABEL) || GmailApp.createLabel(DONE_LABEL);
-  // Auto-détection OU mails que tu tagues « Factures », en excluant le déjà-importé.
-  var query = '(' + AUTO_QUERY + ' OR label:' + SOURCE_LABEL + ') -label:' + DONE_LABEL;
-  var threads = GmailApp.search(query, 0, 25);
+  // Toutes les pièces jointes PDF des 12 derniers mois + tout ce que tu tagues
+  // « Facture », en excluant ce qui est déjà importé.
+  var query = '(has:attachment filename:pdf newer_than:' + NEWER_THAN + ' OR label:' + SOURCE_LABEL + ') -label:' + DONE_LABEL;
+  var threads = GmailApp.search(query, 0, MAX_THREADS);
 
   for (var i = 0; i < threads.length; i++) {
     var msgs = threads[i].getMessages();
@@ -45,6 +49,8 @@ function ingestInvoices() {
         var mime = a.getContentType() || '';
         // On ne pousse que les PDF et images (les vraies factures).
         if (mime.indexOf('pdf') === -1 && mime.indexOf('image') === -1) continue;
+        // Ignore les petites images (logos, signatures, pixels de suivi).
+        if (mime.indexOf('image') !== -1 && a.getSize() < MIN_BYTES) continue;
 
         var payload = {
           secret: INGEST_SECRET,

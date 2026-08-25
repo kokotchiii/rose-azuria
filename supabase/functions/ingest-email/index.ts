@@ -40,6 +40,11 @@ function base64ToBytes(b64: string): Uint8Array {
   return out;
 }
 
+async function sha256Hex(bytes: Uint8Array): Promise<string> {
+  const buf = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 // Nettoie un nom de fichier pour un chemin Storage.
 function safeName(name: string): string {
   return (name || "piece.pdf").replace(/[^a-zA-Z0-9._-]/g, "_").slice(-80);
@@ -70,19 +75,19 @@ Deno.serve(async (req: Request) => {
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
   const storagePath = `${establishmentId}/email/${(messageId ?? crypto.randomUUID()).replace(/[^a-zA-Z0-9]/g, "").slice(0, 40)}_${filename}`;
 
-  // 2) Dédoublonnage : ce fichier de cet e-mail est-il déjà entré ?
-  if (messageId) {
-    const { data: dup } = await admin
-      .from("documents").select("id")
-      .eq("establishment_id", establishmentId)
-      .eq("email_message_id", messageId)
-      .eq("storage_path", storagePath)
-      .maybeSingle();
-    if (dup) return json({ ok: true, skipped: "already_ingested", document_id: dup.id });
-  }
+  // 2) Dédoublonnage par CONTENU : ce fichier exact est-il déjà entré (peu
+  //    importe le message d'origine) ? Empêche les doublons quand la même PJ
+  //    est dans plusieurs mails d'un fil, ou déjà saisie à la main.
+  const bytes = base64ToBytes(body.data_base64);
+  const fileHash = await sha256Hex(bytes);
+  const { data: dupHash } = await admin
+    .from("documents").select("id")
+    .eq("establishment_id", establishmentId)
+    .eq("file_hash", fileHash)
+    .maybeSingle();
+  if (dupHash) return json({ ok: true, skipped: "duplicate_content", document_id: dupHash.id });
 
   // 3) Upload dans Storage.
-  const bytes = base64ToBytes(body.data_base64);
   const { error: upErr } = await admin.storage.from("documents").upload(storagePath, bytes, {
     contentType: mime, upsert: true,
   });
@@ -93,6 +98,7 @@ Deno.serve(async (req: Request) => {
     establishment_id:  establishmentId,
     storage_path:      storagePath,
     file_type:         mime,
+    file_hash:         fileHash,
     ai_status:         "pending",
     source:            "email",
     review_status:     "pending",
