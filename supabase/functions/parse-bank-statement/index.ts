@@ -83,7 +83,8 @@ Réponds UNIQUEMENT par un objet JSON valide (aucun texte avant/après, pas de b
 }
 
 Règles IMPÉRATIVES :
-- Extrais CHAQUE ligne d'opération du relevé, sans en oublier ni en inventer. S'il y a plusieurs pages, lis-les TOUTES et concatène les opérations dans l'ordre chronologique.
+- Extrais CHAQUE ligne d'opération : TOUS les débits (dépenses) ET TOUS les crédits (encaissements carte "REMISE CB", versements d'espèces "VERST ESP", virements reçus). Les crédits servent à vérifier les recettes, ne les oublie pas. N'invente rien.
+- S'il y a plusieurs pages, lis-les TOUTES et concatène les opérations dans l'ordre chronologique.
 - "date" : la date de l'opération (colonne "Date" ou "Date opération"). Si seul un jour/mois est affiché, complète l'année avec celle de la période du relevé. Format ISO YYYY-MM-DD.
 - "label" : le libellé COMPLET de l'opération tel qu'écrit (ex "CB CARREFOUR MARSEILLE 12/06", "VIR SEPA SARL SUD PRIMEURS", "PRLV EDF", "RETRAIT DAB"). Garde le texte brut, utile pour reconnaître le fournisseur.
 - "amount" : le MONTANT en euros, TOUJOURS POSITIF (valeur absolue), en number (pas de string, pas de "€", point décimal).
@@ -171,7 +172,7 @@ Deno.serve(async (req: Request) => {
       },
       body: JSON.stringify({
         model: MODEL,
-        max_tokens: 8192,
+        max_tokens: 32000,
         thinking: { type: "disabled" },
         output_config: { effort: EFFORT },
         system: [{ type: "text", text: PROMPT, cache_control: { type: "ephemeral" } }],
