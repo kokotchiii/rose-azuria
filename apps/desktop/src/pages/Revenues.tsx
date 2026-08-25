@@ -168,9 +168,12 @@ export function Revenues({ profile }: Props) {
       else autre += a;
     }
     const encaisse = carte + especes + autre;
+    // Les remises CB sont créditées NETTES de commission ; le CB déclaré est le brut
+    // encaissé au client. La différence (si le net est inférieur) ≈ commission bancaire.
+    const commissionCarte = stats.cb - carte;
     return {
       hasData: credits.length > 0,
-      carte, especes, autre, encaisse,
+      carte, especes, autre, encaisse, commissionCarte,
       // Écarts : encaissé − déclaré. Positif = plus reçu en banque que déclaré.
       ecartCarte: carte - stats.cb,
       ecartEspeces: especes - stats.cash,
@@ -318,6 +321,14 @@ export function Revenues({ profile }: Props) {
                     {fmtSigned(bankCheck.ecartCarte)}
                   </td>
                 </tr>
+                {bankCheck.commissionCarte > 1 && (
+                  <tr style={{ fontSize: "0.85em", color: "#6b7280" }}>
+                    <td style={{ paddingLeft: "1.5rem" }}>↳ dont commission carte (retenue banque)</td>
+                    <td className="num">—</td>
+                    <td className="num">−{fmtEUR(bankCheck.commissionCarte)}</td>
+                    <td className="num muted">{stats.cb > 0 ? `${(bankCheck.commissionCarte / stats.cb * 100).toFixed(2)} %` : "—"}</td>
+                  </tr>
+                )}
                 <tr>
                   <td>Espèces</td>
                   <td className="num">{fmtEUR(stats.cash)}</td>
@@ -345,9 +356,10 @@ export function Revenues({ profile }: Props) {
               </tbody>
             </table>
             <p className="hint" style={{ marginTop: "0.75rem" }}>
-              <b>Carte :</b> l'écart vient surtout du décalage d'encaissement (les remises tombent à J+1/J+2,
-              celles de fin de période sont créditées après). Sur un mois complet, il doit être proche de 0
-              (à la commission bancaire près).<br />
+              <b>Carte :</b> les remises sont créditées <i>nettes de commission</i> (ligne « dont commission » ci-dessus).
+              L'écart restant vient du décalage d'encaissement (remises à J+1/J+2, celles de fin de période créditées
+              après). Sur un mois complet, hors commission, il doit être proche de 0. Un écart bien plus grand que la
+              commission = un service non saisi.<br />
               <b>Espèces :</b> l'app compte les espèces <i>encaissées au service</i>, la banque ne voit que
               celles <i>déposées</i>. Un dépôt est en général inférieur (fond de caisse, dépôts espacés) ;
               un écart anormal signale des espèces non déposées.<br />

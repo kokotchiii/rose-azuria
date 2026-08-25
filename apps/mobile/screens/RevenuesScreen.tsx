@@ -174,6 +174,8 @@ function StatsView({
     }
     return { has: credits.length > 0, carte, especes, autre, encaisse: carte + especes + autre };
   }, [credits]);
+  // Remises CB créditées nettes → brut déclaré − net encaissé ≈ commission bancaire.
+  const commissionCarte = win.st.cb - bankCheck.carte;
 
   const granLabel = GRANS.find((g) => g.key === gran)?.label.toLowerCase() ?? "";
   const { st } = win;
@@ -286,9 +288,16 @@ function StatsView({
                   <ControlRow label="Autres crédits" declared={st.other} banked={bankCheck.autre} />
                 )}
                 <ControlRow label="Total" declared={win.caTTC} banked={bankCheck.encaisse} bold />
+                {commissionCarte > 1 && (
+                  <Text style={[styles.muted, { marginTop: space.xs }]}>
+                    ↳ dont commission carte retenue ≈ {fmtEUR(commissionCarte)}
+                    {win.st.cb > 0 ? ` (${(commissionCarte / win.st.cb * 100).toFixed(2)} %)` : ""}
+                  </Text>
+                )}
                 <Text style={[styles.muted, { marginTop: space.sm }]}>
-                  Carte : l'écart vient surtout du décalage d'encaissement (J+1/J+2). Espèces : la banque
-                  ne voit que ce qui est déposé — normalement inférieur à l'encaissé au service.
+                  Carte : remises créditées nettes de commission ; l'écart restant vient du décalage
+                  d'encaissement (J+1/J+2). Espèces : la banque ne voit que ce qui est déposé — normalement
+                  inférieur à l'encaissé au service.
                 </Text>
               </>
             )}
