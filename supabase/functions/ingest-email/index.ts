@@ -103,28 +103,41 @@ Deno.serve(async (req: Request) => {
   }).select("id").single();
   if (insErr) return json({ error: "insert_failed", details: insErr.message }, 500);
 
-  // 5) Reconnaissance IA (non bloquant pour la réponse au robot).
-  try {
-    const resp = await fetch(`${SUPABASE_URL}/functions/v1/classify-document`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${SERVICE_ROLE_KEY}`,
-        "apikey": SERVICE_ROLE_KEY,
-      },
-      body: JSON.stringify({ storage_path: storagePath }),
-    });
-    if (resp.ok) {
-      const out = await resp.json();
-      await admin.from("documents")
-        .update({ ai_status: "done", ai_raw_json: out?.result ?? null })
-        .eq("id", doc.id);
-    } else {
+  // 5) Reconnaissance IA EN ARRIÈRE-PLAN : on répond tout de suite au robot
+  //    (sinon Apps Script attendrait 5-30 s par pièce jointe et finirait par
+  //    bloquer). La classification se poursuit après l'envoi de la réponse.
+  const classify = async () => {
+    try {
+      const resp = await fetch(`${SUPABASE_URL}/functions/v1/classify-document`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${SERVICE_ROLE_KEY}`,
+          "apikey": SERVICE_ROLE_KEY,
+        },
+        body: JSON.stringify({ storage_path: storagePath }),
+      });
+      if (resp.ok) {
+        const out = await resp.json();
+        await admin.from("documents")
+          .update({ ai_status: "done", ai_raw_json: out?.result ?? null })
+          .eq("id", doc.id);
+      } else {
+        await admin.from("documents").update({ ai_status: "failed" }).eq("id", doc.id);
+      }
+    } catch (_e) {
       await admin.from("documents").update({ ai_status: "failed" }).eq("id", doc.id);
     }
+  };
+
+  // EdgeRuntime.waitUntil garde le worker en vie pour finir la classification
+  // après avoir répondu. Si indisponible, on lance sans attendre (best effort).
+  try {
+    // @ts-ignore - global fourni par le runtime Supabase Edge
+    EdgeRuntime.waitUntil(classify());
   } catch (_e) {
-    await admin.from("documents").update({ ai_status: "failed" }).eq("id", doc.id);
+    void classify();
   }
 
-  return json({ ok: true, document_id: doc.id });
+  return json({ ok: true, document_id: doc.id, queued: true });
 });
