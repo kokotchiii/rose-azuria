@@ -9,7 +9,7 @@ import type { Profile, ParsedBankTx, BankTxStatus } from "@resto/shared";
 import { uploadAndParseBankStatement, reconcile, type ReconcileExpense } from "@resto/shared";
 import { supabase } from "../supabaseClient";
 import {
-  fetchExpensesForReconcile, commitBankReconciliation, type BankTxRow, fetchBankTransactions,
+  fetchExpensesForReconcile, commitBankReconciliation, autoReconcileUnmatched, type BankTxRow, fetchBankTransactions,
 } from "../lib/data";
 import { fmtDate, fmtEUR } from "../lib/format";
 import { colors, radius, space, type } from "../theme";
@@ -114,6 +114,21 @@ export function ReconcileScreen({ profile }: { profile: Profile }) {
     return `${ex.supplier_name ?? "Sans fournisseur"} · ${fmtEUR(ex.amount_ttc)} · ${fmtDate(ex.expense_date)}`;
   }
 
+  async function onAutoReconcile() {
+    setBusy(true); setError(null); setInfo(null);
+    try {
+      const res = await autoReconcileUnmatched(5);
+      fetchBankTransactions().then(setHistory).catch(() => {});
+      setInfo(res.matched === 0
+        ? "Aucune nouvelle correspondance parmi les opérations non pointées."
+        : `✅ ${res.matched} justificatif(s) pointé(s) : ${res.details.map((d) => `${d.supplier ?? d.label} ${fmtEUR(d.amount)}`).join(", ")}`);
+    } catch (e: unknown) {
+      setError(String((e as Error).message ?? e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const hasImport = meta != null;
   const total = (arr: ParsedBankTx[]) => arr.reduce((s, t) => s + t.amount, 0);
 
@@ -134,6 +149,17 @@ export function ReconcileScreen({ profile }: { profile: Profile }) {
             <Text style={styles.importText}>Importer un relevé (PDF)</Text>
           </>
         )}
+      </Pressable>
+
+      <Pressable
+        style={({ pressed }) => [styles.autoBtn, pressed && { opacity: 0.85 }, busy && { opacity: 0.6 }]}
+        onPress={onAutoReconcile}
+        disabled={busy}
+        accessibilityRole="button"
+        accessibilityLabel="Rapprocher automatiquement les justificatifs"
+      >
+        <Ionicons name="link-outline" size={18} color={colors.primary} />
+        <Text style={styles.autoText}>Rapprocher auto les justificatifs</Text>
       </Pressable>
 
       {info && <Text style={styles.info}>{info}</Text>}
@@ -261,6 +287,8 @@ function makeUuid(): string {
 const styles = StyleSheet.create({
   importBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: space.sm, minHeight: 48, borderRadius: radius.md, backgroundColor: colors.primary, marginBottom: space.sm },
   importText: { ...type.title, color: colors.white },
+  autoBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: space.sm, minHeight: 44, borderRadius: radius.md, backgroundColor: colors.chipBg, borderWidth: 1, borderColor: colors.border, marginBottom: space.sm },
+  autoText: { ...type.body, color: colors.primary, fontWeight: "600" },
   info: { ...type.small, color: colors.success, marginBottom: space.xs },
   error: { ...type.small, color: colors.danger, marginBottom: space.xs },
   meta: { ...type.small, color: colors.textMuted, marginBottom: space.sm },

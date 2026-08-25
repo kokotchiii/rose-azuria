@@ -7,7 +7,7 @@ import { uploadAndParseBankStatement, reconcile, type ReconcileExpense } from "@
 import { supabase } from "../supabaseClient";
 import {
   fetchExpensesForReconcile, commitBankReconciliation, fetchBankTransactions,
-  unmatchBankTransaction, type BankTxRow,
+  unmatchBankTransaction, autoReconcileUnmatched, type BankTxRow,
 } from "../lib/queries";
 import { fmtEUR, fmtDate } from "../lib/format";
 
@@ -136,6 +136,25 @@ export function Reconcile({ profile }: Props) {
     }
   }
 
+  // Rapprochement inversé : pointe automatiquement les justificatifs qui
+  // correspondent à une opération non pointée déjà importée (montant + date).
+  async function onAutoReconcile() {
+    setBusy(true);
+    setError(null);
+    setInfo(null);
+    try {
+      const res = await autoReconcileUnmatched(5);
+      loadHistory();
+      setInfo(res.matched === 0
+        ? "Aucune nouvelle correspondance (rien à pointer parmi les opérations non pointées)."
+        : `✅ ${res.matched} justificatif(s) pointé(s) automatiquement : ${res.details.map((d) => `${d.supplier ?? d.label} ${fmtEUR(d.amount)}`).join(", ")}`);
+    } catch (err: unknown) {
+      setError(String((err as Error).message ?? err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function expenseLabel(ex: ReconcileExpense): string {
     const sup = ex.supplier_name ?? "Sans fournisseur";
     const inv = ex.invoice_number ? ` · ${ex.invoice_number}` : "";
@@ -158,6 +177,10 @@ export function Reconcile({ profile }: Props) {
           <input type="file" accept="application/pdf,image/*" onChange={onFile} disabled={busy} style={{ display: "none" }} />
           {busy ? "Analyse en cours…" : "📄 Importer un relevé (PDF)"}
         </label>
+        <button className="secondary" style={{ marginLeft: 12 }} disabled={busy} onClick={onAutoReconcile}
+          title="Pointe automatiquement les justificatifs (factures) qui correspondent à une opération déjà importée mais non pointée.">
+          🔗 Rapprocher auto les justificatifs
+        </button>
         {info && <span className="badge ok" style={{ marginLeft: 12 }}>{info}</span>}
         {error && <div className="danger" style={{ marginTop: 8 }}>{error}</div>}
       </div>

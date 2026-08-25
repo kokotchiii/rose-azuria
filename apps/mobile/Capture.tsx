@@ -20,7 +20,7 @@ import * as Sharing from "expo-sharing";
 import { uploadAndClassify, uploadAndClassifyPages, PAYMENT_SOURCES } from "@resto/shared";
 import type { AiExtraction, Category, ExpenseKind, PaymentSource, Profile } from "@resto/shared";
 import { supabase } from "./supabaseClient";
-import { findDuplicateByInvoiceNumber, findDuplicateBySupplierAmount } from "./lib/data";
+import { findDuplicateByInvoiceNumber, findDuplicateBySupplierAmount, autoMatchExpense } from "./lib/data";
 import { DateField } from "./screens/ui";
 import { colors, radius, shadow, space, TOUCH, type } from "./theme";
 
@@ -386,7 +386,7 @@ export function Capture({ profile }: Props) {
       // Un payeur PERSO (≠ société) a avancé l'argent => à rembourser (note de frais).
       const isReimbursable = payerId !== null;
 
-      const { error: insErr } = await supabase.from("expenses").insert({
+      const { data: insData, error: insErr } = await supabase.from("expenses").insert({
         establishment_id: profile.establishment_id,
         kind: form.kind,
         expense_date: form.expense_date,
@@ -405,8 +405,13 @@ export function Capture({ profile }: Props) {
         document_id: documentId,
         note: form.note || null,
         created_by: profile.id,
-      });
+      }).select("id").single();
       if (insErr) throw insErr;
+
+      // Rapprochement inversé : pointe la facture si une opération non pointée correspond.
+      if (form.kind === "facture" && insData) {
+        try { await autoMatchExpense((insData as { id: string }).id, Number(form.amount_ttc), form.expense_date, 5); } catch { /* non bloquant */ }
+      }
 
       setSuccess(true);
       resetAll();

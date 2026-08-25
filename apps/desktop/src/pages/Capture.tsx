@@ -13,8 +13,9 @@ import {
   findDuplicateByInvoiceNumber,
   findDuplicateBySupplierAmount,
   insertExpenseItems,
+  autoMatchExpense,
 } from "../lib/queries";
-import { fmtEUR, todayISO, addDaysISO } from "../lib/format";
+import { fmtEUR, fmtDate, todayISO, addDaysISO } from "../lib/format";
 import { compressImage } from "../lib/compressImage";
 import { sha256Hex } from "../lib/normalize";
 
@@ -237,7 +238,17 @@ export function Capture({ profile }: Props) {
         });
       }
 
-      setSuccess("Dépense enregistrée ✅");
+      // Rapprochement inversé : si une opération non pointée du relevé correspond
+      // (même montant, date proche), on pointe la facture automatiquement.
+      let matchMsg = "";
+      if (form.kind === "facture" && inserted) {
+        try {
+          const m = await autoMatchExpense(inserted.id as string, Number(form.amount_ttc), form.expense_date, 5);
+          if (m.matched) matchMsg = ` · pointée automatiquement sur l'opération bancaire du ${fmtDate(m.txDate!)} 🔗`;
+        } catch { /* non bloquant */ }
+      }
+
+      setSuccess("Dépense enregistrée ✅" + matchMsg);
       // Reset
       setFile(null);
       setPreviewUrl(null);

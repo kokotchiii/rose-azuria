@@ -849,6 +849,75 @@ export function classifyCredit(label: string): CreditKind {
   return "autre";
 }
 
+// Rapprochement inversé : pointe les justificatifs qui correspondent à une
+// opération non pointée (même montant, date proche).
+function daysApart(a: string, b: string): number {
+  const da = new Date(a + "T00:00:00").getTime();
+  const db = new Date(b + "T00:00:00").getTime();
+  return Math.abs(Math.round((da - db) / 86_400_000));
+}
+
+export interface AutoReconcileResult {
+  matched: number;
+  details: Array<{ label: string; amount: number; date: string; supplier: string | null }>;
+}
+
+export async function autoReconcileUnmatched(toleranceDays = 5): Promise<AutoReconcileResult> {
+  const { data: txs, error: e1 } = await supabase
+    .from("bank_transactions")
+    .select("id, tx_date, label, amount, direction, status")
+    .eq("direction", "debit").eq("status", "unmatched")
+    .order("tx_date", { ascending: true });
+  if (e1) throw e1;
+  const { data: exps, error: e2 } = await supabase
+    .from("expenses")
+    .select("id, expense_date, amount_ttc, reconciled, supplier:suppliers(name)")
+    .eq("reconciled", false);
+  if (e2) throw e2;
+
+  const expenses = (exps ?? []) as unknown as Array<{
+    id: string; expense_date: string; amount_ttc: number; supplier: { name: string } | null;
+  }>;
+  const used = new Set<string>();
+  const details: AutoReconcileResult["details"] = [];
+  for (const tx of (txs ?? []) as Array<{ id: string; tx_date: string; label: string; amount: number }>) {
+    const amt = Number(tx.amount);
+    const cands = expenses.filter(
+      (e) => !used.has(e.id) && Math.abs(Number(e.amount_ttc) - amt) < 0.01 && daysApart(e.expense_date, tx.tx_date) <= toleranceDays,
+    );
+    if (cands.length !== 1) continue;
+    const e = cands[0];
+    if (!e) continue;
+    used.add(e.id);
+    const { error: uE } = await supabase
+      .from("expenses").update({ reconciled: true, paid: true, paid_at: tx.tx_date }).eq("id", e.id);
+    if (uE) continue;
+    await supabase.from("bank_transactions").update({ status: "matched", matched_expense_id: e.id }).eq("id", tx.id);
+    details.push({ label: tx.label, amount: amt, date: tx.tx_date, supplier: e.supplier?.name ?? null });
+  }
+  return { matched: details.length, details };
+}
+
+export async function autoMatchExpense(
+  expenseId: string, amount: number, date: string, toleranceDays = 5,
+): Promise<{ matched: boolean; label?: string; txDate?: string }> {
+  const { data: txs, error } = await supabase
+    .from("bank_transactions")
+    .select("id, tx_date, label, amount")
+    .eq("direction", "debit").eq("status", "unmatched");
+  if (error) throw error;
+  const cands = ((txs ?? []) as Array<{ id: string; tx_date: string; label: string; amount: number }>)
+    .filter((t) => Math.abs(Number(t.amount) - amount) < 0.01 && daysApart(t.tx_date, date) <= toleranceDays);
+  if (cands.length !== 1) return { matched: false };
+  const tx = cands[0];
+  if (!tx) return { matched: false };
+  const { error: uE } = await supabase
+    .from("expenses").update({ reconciled: true, paid: true, paid_at: tx.tx_date }).eq("id", expenseId);
+  if (uE) throw uE;
+  await supabase.from("bank_transactions").update({ status: "matched", matched_expense_id: expenseId }).eq("id", tx.id);
+  return { matched: true, label: tx.label, txDate: tx.tx_date };
+}
+
 export async function commitBankReconciliation(args: {
   establishmentId: string;
   createdBy: string;
