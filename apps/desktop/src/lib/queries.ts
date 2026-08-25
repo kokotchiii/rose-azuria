@@ -978,6 +978,113 @@ export async function autoReconcileUnmatched(
   return { matched: details.length, details };
 }
 
+// ---------------------------------------------------------------------------
+// Boîte de réception e-mail : factures reçues par mail, en attente de validation.
+// ---------------------------------------------------------------------------
+
+export interface InboxDoc {
+  id: string;
+  storage_path: string;
+  email_from: string | null;
+  email_subject: string | null;
+  email_received_at: string | null;
+  ai_status: "pending" | "done" | "failed";
+  extraction: import("@resto/shared").AiExtraction | null;
+}
+
+export async function fetchEmailInbox(): Promise<InboxDoc[]> {
+  const { data, error } = await supabase
+    .from("documents")
+    .select("id, storage_path, email_from, email_subject, email_received_at, ai_status, ai_raw_json")
+    .eq("source", "email")
+    .eq("review_status", "pending")
+    .order("email_received_at", { ascending: false });
+  if (error) throw error;
+  return ((data ?? []) as unknown as Array<Record<string, unknown>>).map((d) => ({
+    id: d.id as string,
+    storage_path: d.storage_path as string,
+    email_from: (d.email_from as string) ?? null,
+    email_subject: (d.email_subject as string) ?? null,
+    email_received_at: (d.email_received_at as string) ?? null,
+    ai_status: (d.ai_status as InboxDoc["ai_status"]) ?? "pending",
+    extraction: (d.ai_raw_json as InboxDoc["extraction"]) ?? null,
+  }));
+}
+
+export async function countEmailInbox(): Promise<number> {
+  const { count, error } = await supabase
+    .from("documents")
+    .select("id", { count: "exact", head: true })
+    .eq("source", "email")
+    .eq("review_status", "pending");
+  if (error) return 0;
+  return count ?? 0;
+}
+
+export async function ignoreInboxDocument(id: string): Promise<void> {
+  const { error } = await supabase.from("documents").update({ review_status: "ignored" }).eq("id", id);
+  if (error) throw error;
+}
+
+// Valide un document de la boîte : crée la dépense, lie le justificatif,
+// marque le document validé et tente le rapprochement inversé.
+export async function validateInboxDocument(args: {
+  documentId: string;
+  establishmentId: string;
+  createdBy: string;
+  kind: "facture" | "depannage";
+  supplierName: string | null;
+  categoryId: string | null;
+  expenseDate: string;
+  dueDate: string | null;
+  amountTtc: number;
+  tvaRate: number | null;
+  amountTva: number | null;
+  paymentSource: import("@resto/shared").PaymentSource;
+  invoiceNumber: string | null;
+  paid: boolean;
+  note: string | null;
+}): Promise<{ matched: boolean; txDate?: string }> {
+  let supplierId: string | null = null;
+  if (args.supplierName?.trim()) supplierId = await findOrCreateSupplier(args.supplierName, args.establishmentId);
+
+  const { data: inserted, error } = await supabase
+    .from("expenses")
+    .insert({
+      establishment_id: args.establishmentId,
+      kind: args.kind,
+      expense_date: args.expenseDate,
+      due_date: args.dueDate,
+      paid: args.paid,
+      paid_at: args.paid ? args.expenseDate : null,
+      supplier_id: supplierId,
+      category_id: args.categoryId,
+      amount_ttc: args.amountTtc,
+      tva_rate: args.tvaRate,
+      amount_tva: args.amountTva,
+      payment_source: args.paymentSource,
+      invoice_number: args.invoiceNumber,
+      document_id: args.documentId,
+      note: args.note,
+      created_by: args.createdBy,
+    })
+    .select("id")
+    .single();
+  if (error) throw error;
+
+  await supabase
+    .from("documents")
+    .update({ review_status: "validated", expense_id: inserted.id })
+    .eq("id", args.documentId);
+
+  if (args.kind === "facture") {
+    try {
+      return await autoMatchExpense(inserted.id as string, args.amountTtc, args.expenseDate, 5);
+    } catch { /* non bloquant */ }
+  }
+  return { matched: false };
+}
+
 // Pointe UNE dépense précise (celle qu'on vient de créer) si elle correspond à
 // une opération débit non pointée déjà importée. Renvoie l'opération pointée.
 export async function autoMatchExpense(

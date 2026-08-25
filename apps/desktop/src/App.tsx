@@ -4,6 +4,7 @@ import { Login } from "./pages/Login";
 import { Dashboard } from "./pages/Dashboard";
 import { Suivi } from "./pages/Suivi";
 import { Capture } from "./pages/Capture";
+import { Inbox } from "./pages/Inbox";
 import { Expenses } from "./pages/Expenses";
 import { Suppliers } from "./pages/Suppliers";
 import { Products } from "./pages/Products";
@@ -35,6 +36,7 @@ export function App() {
       {page === "suivi"     && <Suivi />}
       {page === "dashboard" && <Dashboard />}
       {page === "capture"   && <Capture profile={profile} />}
+      {page === "inbox"     && <Inbox profile={profile} />}
       {page === "expenses"  && <Expenses />}
       {page === "suppliers" && <Suppliers />}
       {page === "products"  && <Products />}
