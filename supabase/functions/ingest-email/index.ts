@@ -75,11 +75,20 @@ Deno.serve(async (req: Request) => {
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
   const storagePath = `${establishmentId}/email/${(messageId ?? crypto.randomUUID()).replace(/[^a-zA-Z0-9]/g, "").slice(0, 40)}_${filename}`;
 
-  // 2) Dédoublonnage par CONTENU : ce fichier exact est-il déjà entré (peu
-  //    importe le message d'origine) ? Empêche les doublons quand la même PJ
-  //    est dans plusieurs mails d'un fil, ou déjà saisie à la main.
   const bytes = base64ToBytes(body.data_base64);
   const fileHash = await sha256Hex(bytes);
+
+  // 2a) Dédoublonnage par CHEMIN (déterministe : même mail + même pièce jointe
+  //     → même storage_path). Protège TOUS les documents déjà entrés, y compris
+  //     l'ancien lot sans empreinte, qu'ils soient validés, ignorés ou en attente.
+  const { data: dupPath } = await admin
+    .from("documents").select("id")
+    .eq("establishment_id", establishmentId)
+    .eq("storage_path", storagePath)
+    .maybeSingle();
+  if (dupPath) return json({ ok: true, skipped: "already_ingested", document_id: dupPath.id });
+
+  // 2b) Dédoublonnage par CONTENU (même PDF dans plusieurs mails, ou déjà saisi).
   const { data: dupHash } = await admin
     .from("documents").select("id")
     .eq("establishment_id", establishmentId)
