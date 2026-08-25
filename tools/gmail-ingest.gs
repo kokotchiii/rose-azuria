@@ -20,13 +20,18 @@
 var FUNCTION_URL     = 'https://srqabjdczvckjtvftvit.supabase.co/functions/v1/ingest-email';
 var INGEST_SECRET    = 'REMPLACE_PAR_LE_SECRET';      // = INGEST_SECRET côté Supabase
 var ESTABLISHMENT_ID = 'REMPLACE_PAR_TON_ESTABLISHMENT_ID';
-var SOURCE_LABEL     = 'Factures';                    // libellé Gmail surveillé
+var SOURCE_LABEL     = 'Factures';                    // libellé optionnel pour forcer un mail
 var DONE_LABEL       = 'Rose-Importe';                // posé après import (anti-doublon)
+
+// Détection AUTOMATIQUE : mails avec pièce jointe contenant un de ces mots.
+// (La file « à valider » sert de filet : un non-facture qui passe = tu l'ignores.)
+var AUTO_QUERY = 'has:attachment newer_than:30d (facture OR factures OR invoice OR factura OR quittance OR "avis d\'échéance" OR échéance OR abonnement OR "reçu" OR reglement OR règlement)';
 // ===========================================================================
 
 function ingestInvoices() {
   var doneLabel = GmailApp.getUserLabelByName(DONE_LABEL) || GmailApp.createLabel(DONE_LABEL);
-  var query = 'label:' + SOURCE_LABEL + ' -label:' + DONE_LABEL + ' has:attachment newer_than:90d';
+  // Auto-détection OU mails que tu tagues « Factures », en excluant le déjà-importé.
+  var query = '(' + AUTO_QUERY + ' OR label:' + SOURCE_LABEL + ') -label:' + DONE_LABEL;
   var threads = GmailApp.search(query, 0, 25);
 
   for (var i = 0; i < threads.length; i++) {
