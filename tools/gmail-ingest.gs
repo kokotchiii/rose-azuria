@@ -108,14 +108,14 @@ function ingestInvoices() {
   }
 }
 
-/** À lancer UNE fois : programme le robot toutes les 15 minutes. */
+/** À lancer UNE fois : programme le robot UNE FOIS PAR JOUR (vers 7h). */
 function installerRobot() {
   // Nettoie d'éventuels anciens déclencheurs du même robot.
   var triggers = ScriptApp.getProjectTriggers();
   for (var i = 0; i < triggers.length; i++) {
     if (triggers[i].getHandlerFunction() === 'ingestInvoices') ScriptApp.deleteTrigger(triggers[i]);
   }
-  ScriptApp.newTrigger('ingestInvoices').timeBased().everyMinutes(15).create();
+  ScriptApp.newTrigger('ingestInvoices').timeBased().everyDays(1).atHour(7).create();
   // Premier passage immédiat.
   ingestInvoices();
 }
