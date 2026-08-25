@@ -128,7 +128,7 @@ export function Capture({ profile }: Props) {
       const ex = res.extraction;
       const matchedCat = categories.find((c) => c.label === ex.suggested_category);
       // Factures & documents à payer (avec échéance) vs achats de dépannage payés sur le coup.
-      const deducedKind = ["facture", "bon_de_livraison", "loyer", "taxe_impot", "recouvrement", "assurance", "honoraires", "pret"].includes(ex.document_type) ? "facture" : "depannage";
+      const deducedKind = ["facture", "bon_de_livraison", "loyer", "taxe_impot", "recouvrement", "assurance", "honoraires", "pret", "fiche_de_paie", "logiciel", "frais_bancaires"].includes(ex.document_type) ? "facture" : "depannage";
       setForm((prev) => ({
         ...prev,
         kind: deducedKind,

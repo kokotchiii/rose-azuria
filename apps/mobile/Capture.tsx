@@ -315,7 +315,7 @@ export function Capture({ profile }: Props) {
       const matchedCat = categories.find((c) => c.label === ex.suggested_category);
       // Factures & documents à payer (facture, BL, loyer, taxe, recouvrement…) → "facture" ;
       // ticket / note de frais / autre → "depannage".
-      const deducedKind = ["facture", "bon_de_livraison", "loyer", "taxe_impot", "recouvrement", "assurance", "honoraires", "pret"].includes(ex.document_type) ? "facture" : "depannage";
+      const deducedKind = ["facture", "bon_de_livraison", "loyer", "taxe_impot", "recouvrement", "assurance", "honoraires", "pret", "fiche_de_paie", "logiciel", "frais_bancaires"].includes(ex.document_type) ? "facture" : "depannage";
       setForm((prev) => ({
         ...prev,
         kind: deducedKind,

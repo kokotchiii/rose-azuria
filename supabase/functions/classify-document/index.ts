@@ -96,12 +96,12 @@ function isHeic(buf: Uint8Array, mime: string): boolean {
 }
 
 function buildPrompt(categories: string[]): string {
-  return `Tu es un assistant qui extrait les informations d'un DOCUMENT DE DÉPENSE d'un restaurant français. Ce document peut être une facture fournisseur, un bon de livraison, un ticket, une note de frais — MAIS AUSSI un document administratif ou officiel : appel/quittance/mise en demeure de LOYER, avis de TAXE ou d'IMPÔT, courrier de RECOUVREMENT ou d'HUISSIER, attestation/appel d'ASSURANCE, honoraires (avocat, comptable, expert), échéance de PRÊT, etc.
+  return `Tu es un assistant qui extrait les informations d'un DOCUMENT DE DÉPENSE d'un restaurant français. Ce document peut être une facture fournisseur, un bon de livraison, un ticket, une note de frais — MAIS AUSSI un document administratif ou officiel : appel/quittance/mise en demeure de LOYER, avis de TAXE ou d'IMPÔT, courrier de RECOUVREMENT ou d'HUISSIER, attestation/appel d'ASSURANCE, honoraires (avocat, comptable, expert), échéance de PRÊT, FICHE DE PAIE / bulletin de salaire, facture de LOGICIEL / abonnement (logiciel de caisse Lightspeed, TPE, SaaS…), relevé de FRAIS BANCAIRES, etc.
 
 Réponds UNIQUEMENT par un objet JSON valide (pas de texte avant ou après, pas de balises markdown), avec exactement ce schéma :
 
 {
-  "document_type": "facture" | "bon_de_livraison" | "ticket" | "note_de_frais" | "loyer" | "taxe_impot" | "recouvrement" | "assurance" | "honoraires" | "pret" | "autre",
+  "document_type": "facture" | "bon_de_livraison" | "ticket" | "note_de_frais" | "loyer" | "taxe_impot" | "recouvrement" | "assurance" | "honoraires" | "pret" | "fiche_de_paie" | "logiciel" | "frais_bancaires" | "autre",
   "supplier_name": string | null,
   "supplier_siret": string | null,
   "document_date": "YYYY-MM-DD" | null,
@@ -151,9 +151,12 @@ DOCUMENTS NON-FACTURE — catégorisation (TRÈS IMPORTANT, c'est ce que l'app g
 - ASSURANCE (appel de cotisation, avis d'échéance assurance) → document_type "assurance", suggested_category "Autres".
 - HONORAIRES (avocat, comptable, expert, notaire) → document_type "honoraires", suggested_category "Honoraires".
 - PRÊT (échéance/tableau d'amortissement) → document_type "pret", suggested_category "Frais bancaires".
+- FICHE DE PAIE / BULLETIN DE SALAIRE (mentions "Bulletin de paie", "Net à payer", "Salaire brut", "Cotisations salariales", nom du salarié, URSSAF) → document_type "fiche_de_paie". supplier_name = le NOM DU SALARIÉ (le bénéficiaire de la paie). amount_ttc = le "NET À PAYER" (net versé au salarié). suggested_category : choisis dans la liste celle qui parle de salaires/personnel (ex "Salaires", "Personnel", "Paie") ; si aucune n'existe, "Autres".
+- LOGICIEL / ABONNEMENT (facture d'un logiciel de caisse comme Lightspeed, Zelty, Tiller ; SaaS ; abonnement mensuel de matériel/TPE ; hébergement, licence) → document_type "logiciel". supplier_name = l'éditeur (Lightspeed…). suggested_category : celle qui parle de logiciels/abonnements/informatique si elle existe, sinon "Fournitures", sinon "Autres".
+- FRAIS BANCAIRES (relevé de frais, commissions de tenue de compte, agios, commissions carte, location TPE facturée par la banque) → document_type "frais_bancaires", suggested_category "Frais bancaires". supplier_name = la banque.
 
-ARCHIVAGE AU COFFRE ("to_coffre") — mets to_coffre = true pour tout document IMPORTANT à conserver au-delà d'un simple justificatif : LOYER (surtout mise en demeure), TAXE/IMPÔT, RECOUVREMENT/HUISSIER, ASSURANCE, HONORAIRES juridiques, PRÊT, bail, contrat, courrier officiel/administratif. Mets to_coffre = false pour une facture fournisseur ordinaire, un ticket ou une note de frais courante.
-- "coffre_category" : classe le document (loyer/recouvrement → "juridique" ou "bail" ; taxe/impôt → "comptable" ; assurance → "assurance" ; prêt → "banque" ; honoraires → "comptable" ou "juridique"). Sinon "autre".
+ARCHIVAGE AU COFFRE ("to_coffre") — mets to_coffre = true pour tout document IMPORTANT à conserver au-delà d'un simple justificatif : LOYER (surtout mise en demeure), TAXE/IMPÔT, RECOUVREMENT/HUISSIER, ASSURANCE, HONORAIRES juridiques, PRÊT, FICHE DE PAIE / bulletin de salaire, bail, contrat, courrier officiel/administratif. Mets to_coffre = false pour une facture fournisseur ordinaire, un ticket, une note de frais courante ou une simple facture de logiciel/abonnement.
+- "coffre_category" : classe le document (loyer/recouvrement → "juridique" ou "bail" ; taxe/impôt → "comptable" ; assurance → "assurance" ; prêt → "banque" ; honoraires → "comptable" ou "juridique" ; fiche de paie → "rh"). Sinon "autre".
 - "coffre_title" : titre court et parlant (ex "Mise en demeure loyer juin-juillet", "Avis CFE 2026", "Cotisation assurance pro"). Toujours renseigné.
 - Les montants sont en euros, en number (pas de string avec "€").
 - "document_date" au format ISO YYYY-MM-DD.
@@ -177,7 +180,7 @@ function validateAiJson(raw: unknown, categories: string[]) {
   if (typeof raw !== "object" || raw === null) throw new Error("ai_output_not_object");
   const o = raw as Record<string, unknown>;
 
-  const docTypes = ["facture", "bon_de_livraison", "ticket", "note_de_frais", "loyer", "taxe_impot", "recouvrement", "assurance", "honoraires", "pret", "autre"];
+  const docTypes = ["facture", "bon_de_livraison", "ticket", "note_de_frais", "loyer", "taxe_impot", "recouvrement", "assurance", "honoraires", "pret", "fiche_de_paie", "logiciel", "frais_bancaires", "autre"];
   if (typeof o.document_type !== "string" || !docTypes.includes(o.document_type)) o.document_type = "autre";
   if (typeof o.suggested_category !== "string" || !categories.includes(o.suggested_category)) o.suggested_category = "Autres";
   if (typeof o.confidence !== "number" || o.confidence < 0 || o.confidence > 1) o.confidence = 0;
