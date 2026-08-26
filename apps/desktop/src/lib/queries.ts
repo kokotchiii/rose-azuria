@@ -1118,6 +1118,36 @@ export async function validateInboxDocument(args: {
   return { matched: false };
 }
 
+// Rattachement MANUEL : relie un débit bancaire à une ou plusieurs dépenses
+// (paie brut/net, paiement groupé de plusieurs factures, montant arrondi…).
+// Les dépenses passent payées + rapprochées ; le débit passe pointé.
+export async function manualMatchDebit(
+  txId: string, expenseIds: string[], txLabel: string, txDate: string,
+): Promise<void> {
+  const ps = guessPaymentSource(txLabel);
+  for (const id of expenseIds) {
+    const upd: Record<string, unknown> = { reconciled: true, paid: true, paid_at: txDate };
+    if (ps) upd.payment_source = ps;
+    const { error } = await supabase.from("expenses").update(upd).eq("id", id);
+    if (error) throw error;
+  }
+  const { error: e2 } = await supabase
+    .from("bank_transactions")
+    .update({ status: "matched", matched_expense_id: expenseIds[0] ?? null })
+    .eq("id", txId);
+  if (e2) throw e2;
+}
+
+// Annule un rattachement : le débit redevient non pointé et les dépenses liées
+// repassent non rapprochées (on ne les dé-paie pas : elles restent "payées").
+export async function unmatchDebit(txId: string): Promise<void> {
+  const { data: tx } = await supabase
+    .from("bank_transactions").select("matched_expense_id").eq("id", txId).maybeSingle();
+  const eid = (tx as { matched_expense_id: string | null } | null)?.matched_expense_id;
+  await supabase.from("bank_transactions").update({ status: "unmatched", matched_expense_id: null }).eq("id", txId);
+  if (eid) await supabase.from("expenses").update({ reconciled: false }).eq("id", eid);
+}
+
 // Pointe UNE dépense précise (celle qu'on vient de créer) si elle correspond à
 // une opération débit non pointée déjà importée. Renvoie l'opération pointée.
 export async function autoMatchExpense(

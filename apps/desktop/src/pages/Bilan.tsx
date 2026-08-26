@@ -3,10 +3,11 @@
 //   3) ce qui est SORTI en banque SANS facture rattachée.
 // Tout est recoupé automatiquement (dépenses ↔ relevés bancaires).
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 import {
   fetchAllExpensesEnriched, fetchBankTransactions,
-  autoReconcileUnmatched, type ExpenseListItem, type BankTxRow,
+  autoReconcileUnmatched, manualMatchDebit, unmatchDebit,
+  type ExpenseListItem, type BankTxRow,
 } from "../lib/queries";
 import { supabase } from "../supabaseClient";
 import { fmtEUR, fmtDate } from "../lib/format";
@@ -19,6 +20,9 @@ export function Bilan({ onGoReconcile, onGoCapture }: Props) {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  // Rattachement manuel en cours : le débit ciblé + les factures cochées.
+  const [matchTx, setMatchTx] = useState<BankTxRow | null>(null);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -65,6 +69,40 @@ export function Bilan({ onGoReconcile, onGoCapture }: Props) {
     } finally {
       setBusy(false);
     }
+  }
+
+  // Factures que l'on peut rattacher à un débit (pas encore rapprochées).
+  const linkable = useMemo(() => expenses.filter((e) => !e.reconciled), [expenses]);
+  const pickedSum = useMemo(
+    () => linkable.filter((e) => picked.has(e.id)).reduce((s, e) => s + Number(e.amount_ttc), 0),
+    [linkable, picked],
+  );
+
+  function openMatch(tx: BankTxRow) {
+    setMatchTx(tx);
+    // Pré-coche automatiquement une facture de même montant si elle existe.
+    const exact = linkable.find((e) => Math.abs(Number(e.amount_ttc) - Number(tx.amount)) < 0.01);
+    setPicked(new Set(exact ? [exact.id] : []));
+  }
+  function togglePick(id: string) {
+    setPicked((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  }
+  async function confirmMatch() {
+    if (!matchTx || picked.size === 0) return;
+    setBusy(true); setMsg(null);
+    try {
+      await manualMatchDebit(matchTx.id, Array.from(picked), matchTx.label, matchTx.tx_date);
+      setMatchTx(null); setPicked(new Set());
+      await reload();
+      setMsg("✅ Rattaché.");
+    } catch (e: unknown) {
+      setMsg("⚠ " + String((e as Error).message ?? e));
+    } finally { setBusy(false); }
+  }
+  async function onUnmatchDebit(tx: BankTxRow) {
+    setBusy(true);
+    try { await unmatchDebit(tx.id); await reload(); }
+    finally { setBusy(false); }
   }
 
   if (loading) return <div className="page"><h1>Bilan</h1><p className="muted">Chargement…</p></div>;
@@ -119,13 +157,14 @@ export function Bilan({ onGoReconcile, onGoCapture }: Props) {
         </p>
         {debitsNoInvoice.length === 0 ? <p className="muted">Tout est rattaché. 🎉</p> : (
           <table className="exp-table">
-            <thead><tr><th>Date</th><th>Libellé (banque)</th><th className="num">Montant</th></tr></thead>
+            <thead><tr><th>Date</th><th>Libellé (banque)</th><th className="num">Montant</th><th></th></tr></thead>
             <tbody>
               {debitsNoInvoice.map((t) => (
                 <tr key={t.id}>
                   <td>{fmtDate(t.tx_date)}</td>
                   <td>{t.label}</td>
                   <td className="num"><b>{fmtEUR(Number(t.amount))}</b></td>
+                  <td><button className="link" onClick={() => openMatch(t)}>🔗 Rattacher</button></td>
                 </tr>
               ))}
             </tbody>
@@ -149,13 +188,72 @@ export function Bilan({ onGoReconcile, onGoCapture }: Props) {
                   <td>{fmtDate(e.expense_date)}</td>
                   <td>{e.paid_at ? fmtDate(e.paid_at) : "—"}</td>
                   <td className="num">{fmtEUR(Number(e.amount_ttc))}</td>
-                  <td>{e.reconciled ? <span className="badge ok">oui</span> : <span className="badge warn">manuel</span>}</td>
+                  <td>
+                    {e.reconciled
+                      ? <span className="badge ok">oui</span>
+                      : <span className="badge warn">manuel</span>}
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         )}
       </div>
+
+      {/* MODALE DE RATTACHEMENT */}
+      {matchTx && (
+        <div style={overlay} onClick={() => setMatchTx(null)}>
+          <div style={modal} onClick={(ev) => ev.stopPropagation()}>
+            <h2 style={{ marginTop: 0 }}>Rattacher un paiement à une ou plusieurs factures</h2>
+            <div className="muted" style={{ marginBottom: 8 }}>
+              Débit du <b>{fmtDate(matchTx.tx_date)}</b> · {matchTx.label}
+            </div>
+            <div style={{ fontSize: "1.1em", marginBottom: 12 }}>
+              Montant du débit : <b>{fmtEUR(Number(matchTx.amount))}</b> ·
+              {" "}Sélectionné : <b style={{ color: Math.abs(pickedSum - Number(matchTx.amount)) < 0.01 ? "#16a34a" : "#d97706" }}>{fmtEUR(pickedSum)}</b>
+              {Math.abs(pickedSum - Number(matchTx.amount)) >= 0.01 && picked.size > 0 && (
+                <span className="muted"> (écart {fmtEUR(pickedSum - Number(matchTx.amount))})</span>
+              )}
+            </div>
+            <p className="muted" style={{ marginTop: 0 }}>
+              Coche la (ou les) facture(s) réglée(s) par ce débit — même si les montants ne collent pas
+              au centime (paie brut/net, 2 factures d'un coup, arrondi).
+            </p>
+            <div style={{ maxHeight: 320, overflowY: "auto", border: "1px solid #e5e7eb", borderRadius: 8 }}>
+              <table className="exp-table" style={{ margin: 0 }}>
+                <tbody>
+                  {[...linkable]
+                    .sort((a, b) => Math.abs(Number(a.amount_ttc) - Number(matchTx.amount)) - Math.abs(Number(b.amount_ttc) - Number(matchTx.amount)))
+                    .slice(0, 150)
+                    .map((e) => (
+                      <tr key={e.id} style={{ cursor: "pointer", background: picked.has(e.id) ? "#ecfdf5" : undefined }} onClick={() => togglePick(e.id)}>
+                        <td style={{ width: 28 }}><input type="checkbox" checked={picked.has(e.id)} readOnly /></td>
+                        <td>{e.supplier?.name ?? "—"}{e.invoice_number ? ` · ${e.invoice_number}` : ""}</td>
+                        <td>{fmtDate(e.expense_date)}</td>
+                        <td className="num"><b>{fmtEUR(Number(e.amount_ttc))}</b></td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 14, justifyContent: "flex-end" }}>
+              <button className="secondary" onClick={() => setMatchTx(null)}>Annuler</button>
+              <button className="primary" disabled={busy || picked.size === 0} onClick={confirmMatch}>
+                Rattacher {picked.size > 0 ? `(${picked.size})` : ""}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
+const overlay: CSSProperties = {
+  position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)",
+  display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50, padding: 16,
+};
+const modal: CSSProperties = {
+  background: "var(--surface, #fff)", borderRadius: 12, padding: 20,
+  width: "min(720px, 100%)", maxHeight: "90vh", overflowY: "auto", boxShadow: "0 10px 40px rgba(0,0,0,0.2)",
+};
