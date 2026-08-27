@@ -939,7 +939,9 @@ function paymentPlausible(expenseDate: string, txDate: string): boolean {
   const inv = new Date(expenseDate + "T00:00:00").getTime();
   const pay = new Date(txDate + "T00:00:00").getTime();
   const diffDays = Math.round((pay - inv) / 86_400_000);
-  return diffDays >= -7 && diffDays <= 120;
+  // Fenêtre symétrique large : la "date de facture" saisie est souvent la date
+  // de saisie (parfois après le paiement réel). Le montant EXACT reste le garde-fou.
+  return Math.abs(diffDays) <= 150;
 }
 
 // Déduit le moyen de paiement d'après le libellé bancaire du débit qui a réglé

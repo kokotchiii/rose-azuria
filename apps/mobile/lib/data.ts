@@ -858,7 +858,7 @@ function paymentPlausible(expenseDate: string, txDate: string): boolean {
   const inv = new Date(expenseDate + "T00:00:00").getTime();
   const pay = new Date(txDate + "T00:00:00").getTime();
   const diffDays = Math.round((pay - inv) / 86_400_000);
-  return diffDays >= -7 && diffDays <= 120;
+  return Math.abs(diffDays) <= 150;
 }
 
 function guessPaymentSource(label: string): "cb_pro" | "virement" | "especes" | null {
