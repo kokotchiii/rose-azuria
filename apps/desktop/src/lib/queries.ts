@@ -983,30 +983,44 @@ export async function autoReconcileUnmatched(
   const used = new Set<string>();
   const details: AutoReconcileResult["details"] = [];
 
+  type Exp = { id: string; expense_date: string; amount_ttc: number; supplier: { name: string } | null };
+  const link = async (ids: string[], tx: { id: string; tx_date: string; label: string }, amt: number, supplier: string | null): Promise<boolean> => {
+    const ps = guessPaymentSource(tx.label);
+    for (const id of ids) {
+      const upd: Record<string, unknown> = { reconciled: true, paid: true, paid_at: tx.tx_date };
+      if (ps) upd.payment_source = ps;
+      const { error } = await supabase.from("expenses").update(upd).eq("id", id);
+      if (error) return false;
+    }
+    await supabase.from("bank_transactions").update({ status: "matched", matched_expense_id: ids[0] }).eq("id", tx.id);
+    ids.forEach((id) => used.add(id));
+    details.push({ label: tx.label, amount: amt, date: tx.tx_date, supplier });
+    return true;
+  };
+
   for (const tx of (txs ?? []) as Array<{ id: string; tx_date: string; label: string; amount: number }>) {
     const amt = Number(tx.amount);
-    const cands = expenses.filter(
-      (e) => !used.has(e.id)
-        && Math.abs(Number(e.amount_ttc) - amt) < 0.01
-        && paymentPlausible(e.expense_date, tx.tx_date),
-    );
-    if (cands.length !== 1) continue; // 0 = rien ; >1 = ambigu, on laisse en manuel
-    const e = cands[0];
-    if (!e) continue;
-    used.add(e.id);
-    const upd: Record<string, unknown> = { reconciled: true, paid: true, paid_at: tx.tx_date };
-    const ps = guessPaymentSource(tx.label);
-    if (ps) upd.payment_source = ps;
-    const { error: uE } = await supabase
-      .from("expenses")
-      .update(upd)
-      .eq("id", e.id);
-    if (uE) continue;
-    await supabase
-      .from("bank_transactions")
-      .update({ status: "matched", matched_expense_id: e.id })
-      .eq("id", tx.id);
-    details.push({ label: tx.label, amount: amt, date: tx.tx_date, supplier: e.supplier?.name ?? null });
+    const pool = (expenses as Exp[]).filter((e) => !used.has(e.id) && paymentPlausible(e.expense_date, tx.tx_date));
+
+    // 1) Facture unique de montant exact.
+    const singles = pool.filter((e) => Math.abs(Number(e.amount_ttc) - amt) < 0.01);
+    if (singles.length === 1) { const e = singles[0]!; await link([e.id], tx, amt, e.supplier?.name ?? null); continue; }
+    if (singles.length > 1) continue; // ambigu → manuel
+
+    // 2) Paiement groupé : UNE seule paire de factures dont la somme = le débit.
+    const sub = pool.filter((e) => Number(e.amount_ttc) < amt - 0.01);
+    let pair: [Exp, Exp] | null = null;
+    let pairCount = 0;
+    for (let i = 0; i < sub.length && pairCount < 2; i++) {
+      const a = sub[i]!;
+      for (let j = i + 1; j < sub.length; j++) {
+        const b = sub[j]!;
+        if (Math.abs(Number(a.amount_ttc) + Number(b.amount_ttc) - amt) < 0.01) {
+          pairCount++; if (pairCount === 1) pair = [a, b]; else break;
+        }
+      }
+    }
+    if (pairCount === 1 && pair) { await link([pair[0].id, pair[1].id], tx, amt, pair[0].supplier?.name ?? null); }
   }
   return { matched: details.length, details };
 }
