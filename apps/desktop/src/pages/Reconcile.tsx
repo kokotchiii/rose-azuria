@@ -7,8 +7,9 @@ import { uploadAndParseBankStatement, reconcile, type ReconcileExpense } from "@
 import { supabase } from "../supabaseClient";
 import {
   fetchExpensesForReconcile, commitBankReconciliation, fetchBankTransactions,
-  unmatchBankTransaction, autoReconcileUnmatched, type BankTxRow,
+  unmatchBankTransaction, autoReconcileUnmatched, fetchBankCredits, classifyCredit, type BankTxRow,
 } from "../lib/queries";
+import { fetchRevenues } from "../lib/revenues";
 import { fmtEUR, fmtDate } from "../lib/format";
 
 interface Props { profile: Profile }
@@ -34,8 +35,40 @@ export function Reconcile({ profile }: Props) {
 
   const [history, setHistory] = useState<BankTxRow[]>([]);
 
+  // Contrôle des recettes : ce qui est arrivé sur le compte vs ce qu'on a déclaré.
+  const [control, setControl] = useState<{
+    carte: number; especes: number; autre: number; encaisse: number;
+    declCb: number; declCash: number; declTotal: number; tva: number;
+    from: string | null; to: string | null;
+  } | null>(null);
+
+  async function loadControl() {
+    try {
+      const credits = await fetchBankCredits("2000-01-01", "2999-12-31");
+      if (!credits.length) { setControl(null); return; }
+      let carte = 0, especes = 0, autre = 0;
+      let minD = credits[0]!.tx_date, maxD = credits[0]!.tx_date;
+      for (const c of credits) {
+        const k = classifyCredit(c.label); const a = Number(c.amount) || 0;
+        if (k === "carte") carte += a; else if (k === "especes") especes += a; else autre += a;
+        if (c.tx_date < minD) minD = c.tx_date;
+        if (c.tx_date > maxD) maxD = c.tx_date;
+      }
+      const rev = await fetchRevenues({ from: minD, to: maxD });
+      const declCb = rev.reduce((s, r) => s + Number(r.amount_cb || 0), 0);
+      const declCash = rev.reduce((s, r) => s + Number(r.amount_cash || 0), 0);
+      const declOther = rev.reduce((s, r) => s + Number(r.amount_other || 0), 0);
+      const tva = rev.reduce((s, r) => s + Number(r.tva_amount || 0), 0);
+      setControl({
+        carte, especes, autre, encaisse: carte + especes + autre,
+        declCb, declCash, declTotal: declCb + declCash + declOther, tva, from: minD, to: maxD,
+      });
+    } catch (e) { console.error(e); }
+  }
+
   function loadHistory() {
     fetchBankTransactions().then(setHistory).catch((e) => console.error(e));
+    loadControl();
   }
   useEffect(() => { loadHistory(); }, []);
 
@@ -155,6 +188,11 @@ export function Reconcile({ profile }: Props) {
     }
   }
 
+  function fmtSigned(v: number): string {
+    if (Math.abs(v) < 0.5) return "≈ 0";
+    return (v > 0 ? "+" : "−") + fmtEUR(Math.abs(v));
+  }
+
   function expenseLabel(ex: ReconcileExpense): string {
     const sup = ex.supplier_name ?? "Sans fournisseur";
     const inv = ex.invoice_number ? ` · ${ex.invoice_number}` : "";
@@ -162,6 +200,9 @@ export function Reconcile({ profile }: Props) {
   }
 
   const hasImport = parsedMeta != null;
+  // Historique SANS les remises carte (REMISE CB) : elles polluent la liste et
+  // sont déjà synthétisées dans le Contrôle des recettes.
+  const shownHistory = history.filter((t) => !(t.direction === "credit" && classifyCredit(t.label) === "carte"));
 
   return (
     <div className="page">
@@ -184,6 +225,69 @@ export function Reconcile({ profile }: Props) {
         {info && <span className="badge ok" style={{ marginLeft: 12 }}>{info}</span>}
         {error && <div className="danger" style={{ marginTop: 8 }}>{error}</div>}
       </div>
+
+      {/* Contrôle des recettes : CA arrivé sur le compte vs recettes déclarées */}
+      {control && (
+        <div className="card" style={{ marginBottom: "1rem" }}>
+          <h2 style={{ marginTop: 0 }}>💰 Contrôle des recettes — arrivé sur le compte vs déclaré</h2>
+          <p className="muted" style={{ marginTop: 0 }}>
+            Ce qui est réellement <b>tombé sur le compte</b> (remises carte nettes de commission + dépôts
+            d'espèces) comparé à ce que tu as <b>saisi dans Recettes</b>. Période des encaissements :
+            {" "}{control.from ? fmtDate(control.from) : "?"} → {control.to ? fmtDate(control.to) : "?"}.
+          </p>
+          <table className="exp-table">
+            <thead>
+              <tr><th>Mode</th><th className="num">Déclaré (app)</th><th className="num">Encaissé (banque)</th><th className="num">Écart</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Carte (CB)</td>
+                <td className="num">{fmtEUR(control.declCb)}</td>
+                <td className="num">{fmtEUR(control.carte)} <span className="muted">(net)</span></td>
+                <td className="num" style={{ color: Math.abs(control.carte - control.declCb) < 5 ? "#16a34a" : "#6b7280" }}>
+                  {fmtSigned(control.carte - control.declCb)}
+                </td>
+              </tr>
+              {control.declCb - control.carte > 1 && (
+                <tr style={{ fontSize: "0.85em", color: "#6b7280" }}>
+                  <td style={{ paddingLeft: "1.5rem" }}>↳ dont commission carte (frais bancaires)</td>
+                  <td className="num">—</td>
+                  <td className="num">−{fmtEUR(control.declCb - control.carte)}</td>
+                  <td className="num muted">{control.declCb > 0 ? `${((control.declCb - control.carte) / control.declCb * 100).toFixed(2)} %` : "—"}</td>
+                </tr>
+              )}
+              <tr>
+                <td>Espèces</td>
+                <td className="num">{fmtEUR(control.declCash)}</td>
+                <td className="num">{fmtEUR(control.especes)} <span className="muted">(déposées)</span></td>
+                <td className="num muted">{fmtSigned(control.especes - control.declCash)}</td>
+              </tr>
+              {control.autre > 0 && (
+                <tr>
+                  <td>Autres crédits <span className="muted">(virements reçus…)</span></td>
+                  <td className="num">—</td>
+                  <td className="num">{fmtEUR(control.autre)}</td>
+                  <td className="num muted">—</td>
+                </tr>
+              )}
+              <tr style={{ fontWeight: 700, borderTop: "2px solid #d1d5db" }}>
+                <td>Total</td>
+                <td className="num">{fmtEUR(control.declTotal)}</td>
+                <td className="num">{fmtEUR(control.encaisse)}</td>
+                <td className="num" style={{ color: Math.abs(control.encaisse - control.declTotal) < 20 ? "#16a34a" : "#d97706" }}>
+                  {fmtSigned(control.encaisse - control.declTotal)}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <p className="hint" style={{ marginTop: "0.5rem" }}>
+            TVA collectée déclarée sur la période : <b>{control.tva > 0 ? fmtEUR(control.tva) : "—"}</b>.
+            La carte est créditée nette de commission ; les espèces déposées sont normalement inférieures à
+            l'encaissé (fond de caisse, dépôts espacés). Un écart carte bien supérieur à la commission = un
+            service non saisi.
+          </p>
+        </div>
+      )}
 
       {hasImport && (
         <>
@@ -221,13 +325,16 @@ export function Reconcile({ profile }: Props) {
             </tbody>
           </table>
 
-          {/* Crédits (entrées) — informatif */}
-          {credits.length > 0 && (
+          {/* Crédits (entrées) hors remises carte — informatif. Les REMISE CB
+              sont exclues (traitées dans le Contrôle des recettes ci-dessus). */}
+          {credits.filter((c) => classifyCredit(c.label) !== "carte").length > 0 && (
             <details style={{ marginTop: 12 }}>
-              <summary className="muted">Crédits / entrées ({credits.length}) — non rapprochés (côté recettes)</summary>
+              <summary className="muted">
+                Autres crédits / entrées — hors remises carte (résumées plus haut)
+              </summary>
               <table>
                 <tbody>
-                  {credits.map((c, i) => (
+                  {credits.filter((c) => classifyCredit(c.label) !== "carte").map((c, i) => (
                     <tr key={i}><td>{fmtDate(c.date)}</td><td>{c.label}</td><td style={{ textAlign: "right" }}>{fmtEUR(c.amount)}</td></tr>
                   ))}
                 </tbody>
@@ -260,15 +367,15 @@ export function Reconcile({ profile }: Props) {
       )}
 
       {/* Historique des imports */}
-      {history.length > 0 && (
+      {shownHistory.length > 0 && (
         <section style={{ marginTop: "2rem" }}>
-          <h2>Opérations importées ({history.length})</h2>
+          <h2>Opérations importées ({shownHistory.length}) <span className="muted" style={{ fontSize: "0.8em", fontWeight: 400 }}>· remises carte masquées</span></h2>
           <table>
             <thead>
               <tr><th>Date</th><th>Libellé</th><th style={{ textAlign: "right" }}>Montant</th><th>Statut</th><th></th></tr>
             </thead>
             <tbody>
-              {history.slice(0, 200).map((t) => {
+              {shownHistory.slice(0, 200).map((t) => {
                 const ex = t.matched_expense_id ? expensesById[t.matched_expense_id] : null;
                 return (
                   <tr key={t.id}>
