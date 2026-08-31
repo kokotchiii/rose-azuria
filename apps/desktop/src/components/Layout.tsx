@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { supabase } from "../supabaseClient";
 import type { Profile } from "@resto/shared";
 
-export type PageKey = "bilan" | "suivi" | "dashboard" | "capture" | "inbox" | "expenses" | "invoices" | "suppliers" | "products" | "todos" | "export" | "revenues" | "payable" | "reimbursements" | "events" | "previsionnel" | "reconcile" | "coffre";
+export type PageKey = "depenses" | "bilan" | "suivi" | "dashboard" | "capture" | "inbox" | "expenses" | "invoices" | "suppliers" | "products" | "todos" | "export" | "revenues" | "payable" | "reimbursements" | "events" | "previsionnel" | "reconcile" | "coffre";
 
 interface Props {
   page: PageKey;
@@ -14,7 +14,8 @@ interface Props {
 }
 
 const NAV: Array<{ key: PageKey; label: string; icon: string }> = [
-  { key: "bilan",     label: "Bilan (payé / à payer)", icon: "⚖️" },
+  { key: "depenses",  label: "Mes dépenses", icon: "💸" },
+  { key: "bilan",     label: "Bilan & banque", icon: "⚖️" },
   { key: "suivi",     label: "Suivi (objectifs)", icon: "🎯" },
   { key: "dashboard", label: "Tableau de bord", icon: "📊" },
   { key: "capture",   label: "Capturer un justificatif", icon: "📷" },

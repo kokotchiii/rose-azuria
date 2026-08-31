@@ -271,27 +271,35 @@ export interface SupplierStats {
 }
 
 export async function fetchSuppliersWithStats(): Promise<SupplierStats[]> {
+  // Catégories NON commerciales : le "fournisseur" est en fait un bailleur, un
+  // salarié ou une administration → on ne le montre pas dans les Fournisseurs.
+  const EXCLUDE = ["loyer", "salaire", "charges sociales", "urssaf"];
   const [{ data: suppliers }, { data: expenses }] = await Promise.all([
     supabase.from("suppliers").select("*"),
-    supabase.from("expenses").select("supplier_id, amount_ttc, expense_date"),
+    supabase.from("expenses").select("supplier_id, amount_ttc, expense_date, category:categories(label)"),
   ]);
 
-  const map = new Map<string, { total: number; count: number; last: string | null }>();
-  for (const e of expenses ?? []) {
+  const map = new Map<string, { total: number; count: number; last: string | null; commercial: boolean }>();
+  for (const e of (expenses ?? []) as unknown as Array<{ supplier_id: string | null; amount_ttc: number; expense_date: string; category: { label: string } | { label: string }[] | null }>) {
     const k = e.supplier_id;
     if (!k) continue;
-    const cur = map.get(k) ?? { total: 0, count: 0, last: null };
+    const catObj = Array.isArray(e.category) ? e.category[0] : e.category;
+    const cat = (catObj?.label ?? "").toLowerCase();
+    const isExcluded = EXCLUDE.some((x) => cat.includes(x));
+    const cur = map.get(k) ?? { total: 0, count: 0, last: null, commercial: false };
     cur.total += Number(e.amount_ttc ?? 0);
     cur.count += 1;
     if (!cur.last || e.expense_date > cur.last) cur.last = e.expense_date;
+    if (!isExcluded) cur.commercial = true; // au moins une dépense "commerciale"
     map.set(k, cur);
   }
 
   return ((suppliers ?? []) as Supplier[])
     .map((s) => {
-      const m = map.get(s.id) ?? { total: 0, count: 0, last: null };
-      return { supplier: s, total_amount: m.total, invoice_count: m.count, last_date: m.last };
+      const m = map.get(s.id) ?? { total: 0, count: 0, last: null, commercial: true };
+      return { supplier: s, total_amount: m.total, invoice_count: m.count, last_date: m.last, commercial: m.commercial };
     })
+    .filter((x) => x.commercial) // exclut bailleur (loyer), salariés (paie), URSSAF…
     .sort((a, b) => b.total_amount - a.total_amount);
 }
 
@@ -321,6 +329,24 @@ export async function fetchAllExpensesEnriched(): Promise<ExpenseListItem[]> {
     .order("expense_date", { ascending: false });
   if (error) throw error;
   return (data ?? []) as unknown as ExpenseListItem[];
+}
+
+// URL signée du justificatif d'une dépense (via son document lié).
+export async function getExpenseDocUrl(documentId: string): Promise<string | null> {
+  const { data: doc } = await supabase.from("documents").select("storage_path").eq("id", documentId).maybeSingle();
+  const path = (doc as { storage_path: string } | null)?.storage_path;
+  if (!path) return null;
+  const { data } = await supabase.storage.from("documents").createSignedUrl(path, 3600);
+  return data?.signedUrl ?? null;
+}
+
+// Marque une note de frais remboursée (ou annule).
+export async function markReimbursed(expenseId: string, reimbursed: boolean): Promise<void> {
+  const { error } = await supabase
+    .from("expenses")
+    .update({ reimbursed, reimbursed_at: reimbursed ? new Date().toISOString() : null })
+    .eq("id", expenseId);
+  if (error) throw error;
 }
 
 // Factures avec une date d'échéance, non encore réglées (triées par échéance).
