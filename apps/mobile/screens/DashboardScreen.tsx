@@ -108,7 +108,7 @@ export function DashboardScreen() {
 
       {view === "revenues"
         ? <RevenuesDash revenues={revenues} defaultRate={defaultRate} periodLabel={periodLabel} />
-        : <ExpensesDash expenses={expenses} expHT={expHT} aiCost={aiCost} reimbTotal={reimbTotal} periodLabel={periodLabel} />}
+        : <ExpensesDash expenses={expenses} expHT={expHT} aiCost={aiCost} reimbTotal={reimbTotal} periodLabel={periodLabel} caTTC={revenues.reduce((s, r) => s + revenueTotal(r), 0)} />}
     </Screen>
   );
 }
@@ -196,13 +196,14 @@ function RevenuesDash({ revenues, defaultRate, periodLabel }: { revenues: Revenu
 
 // ---------- Vue Dépenses ----------
 function ExpensesDash({
-  expenses, expHT, aiCost, reimbTotal, periodLabel,
+  expenses, expHT, aiCost, reimbTotal, periodLabel, caTTC,
 }: {
   expenses: ExpenseListItem[];
   expHT: (e: ExpenseListItem) => number;
   aiCost: { total: number; count: number };
   reimbTotal: number;
   periodLabel: string;
+  caTTC: number;
 }) {
   const e = useMemo(() => {
     const totalTTC = expenses.reduce((s, x) => s + Number(x.amount_ttc), 0);
@@ -241,6 +242,30 @@ function ExpensesDash({
           <SectionTitle>Dépenses par catégorie (TTC)</SectionTitle>
           <Card>
             <Donut segments={e.byCategory} centerValue={fmtEUR(e.totalTTC)} centerLabel="total" format={fmtEUR} />
+          </Card>
+
+          <SectionTitle>Détail par type · part du CA</SectionTitle>
+          <Card>
+            {e.byCategory.map((c) => {
+              const pct = caTTC > 0 ? Math.round((c.value / caTTC) * 100) : null;
+              return (
+                <View key={c.label} style={styles.typeRow}>
+                  <View style={[styles.dot, { backgroundColor: c.color }]} />
+                  <Text style={styles.typeLabel} numberOfLines={1}>{c.label}</Text>
+                  <Text style={styles.typeVal}>{fmtEUR(c.value)}</Text>
+                  <Text style={styles.typePct}>{pct != null ? `${pct}%` : "—"}</Text>
+                </View>
+              );
+            })}
+            <View style={[styles.typeRow, styles.typeTotal]}>
+              <View style={{ width: 10 }} />
+              <Text style={[styles.typeLabel, { fontWeight: "700" }]}>Total dépenses</Text>
+              <Text style={[styles.typeVal, { fontWeight: "700" }]}>{fmtEUR(e.totalTTC)}</Text>
+              <Text style={[styles.typePct, { fontWeight: "700" }]}>{caTTC > 0 ? `${Math.round((e.totalTTC / caTTC) * 100)}%` : "—"}</Text>
+            </View>
+            <Text style={[styles.muted, { marginTop: space.sm }]}>
+              « part du CA » = ce que chaque poste représente dans ton chiffre d'affaires de la période.
+            </Text>
           </Card>
 
           <SectionTitle>Évolution des dépenses</SectionTitle>
@@ -284,4 +309,10 @@ const styles = StyleSheet.create({
   barVal: { ...type.small, color: colors.textMuted },
   barTrack: { height: 12, borderRadius: radius.pill, backgroundColor: colors.chipBg, overflow: "hidden" },
   barFill: { height: 12, borderRadius: radius.pill },
+  typeRow: { flexDirection: "row", alignItems: "center", gap: space.sm, paddingVertical: 6 },
+  dot: { width: 10, height: 10, borderRadius: 5 },
+  typeLabel: { ...type.body, color: colors.text, flex: 1 },
+  typeVal: { ...type.body, color: colors.text, width: 80, textAlign: "right" },
+  typePct: { ...type.small, color: colors.textMuted, width: 44, textAlign: "right" },
+  typeTotal: { borderTopWidth: 1, borderTopColor: colors.chipBg, marginTop: 4, paddingTop: 8 },
 });

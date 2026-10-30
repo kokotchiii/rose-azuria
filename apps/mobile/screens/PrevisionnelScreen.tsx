@@ -206,6 +206,30 @@ export function PrevisionnelScreen() {
             )}
           </Card>
 
+          {/* Objectif business plan vs rythme actuel (clair) */}
+          {live && (() => {
+            const objAn = CA_SERVICE_CIBLE_HT * HYPOTHESES_DEFAUT.servicesParSemaine * HYPOTHESES_DEFAUT.semainesParAn;
+            const rythme = model.horizons.parAn;
+            const ecart = objAn ? Math.round((rythme / objAn - 1) * 100) : 0;
+            const au = rythme >= objAn;
+            return (
+              <>
+                <SectionTitle>Où tu en es vs ton plan</SectionTitle>
+                <Card>
+                  <View style={styles.kpiRow}>
+                    <Kpi label="🎯 Objectif business plan (an plein · HT)" value={fmt0(objAn)} />
+                    <Kpi label="🚀 Ton rythme actuel (12 mois · HT)" value={fmt0(rythme)} tone={au ? "good" : "warn"} />
+                  </View>
+                  <Kpi label="Écart vs objectif" value={`${au ? "+" : ""}${ecart} %`} tone={au ? "good" : "warn"} />
+                  <Text style={styles.note}>
+                    {au ? "Tu tournes au-dessus de ton business plan 🎉 " : "En-dessous du plan — normal en lancement, le rythme monte. "}
+                    « Objectif » = cible budgétée (année pleine). « Rythme actuel » = projection si tu gardes la cadence, pas un objectif.
+                  </Text>
+                </Card>
+              </>
+            );
+          })()}
+
           {/* Projection CA */}
           <SectionTitle>Projection du chiffre d'affaires (HT)</SectionTitle>
           <Card>
@@ -228,7 +252,7 @@ export function PrevisionnelScreen() {
           </Card>
 
           {/* Run-rate */}
-          <SectionTitle>Rythme réel extrapolé</SectionTitle>
+          <SectionTitle>Ton rythme actuel projeté{live ? " (pas un objectif)" : ""}</SectionTitle>
           <View style={styles.kpiRow}>
             <Kpi label="CA HT / semaine" value={fmt0(model.horizons.parSemaine)} />
             <Kpi label="CA HT / mois" value={fmt0(model.horizons.parMois)} />

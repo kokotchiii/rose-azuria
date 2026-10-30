@@ -40,3 +40,7 @@ verify_jwt = true
 # par le secret partagé INGEST_SECRET à l'intérieur de la fonction.
 [functions.ingest-email]
 verify_jwt = false
+
+# Idem : le robot Gmail pousse les rapports Lightspeed (recettes) ici, sans JWT.
+[functions.ingest-sales]
+verify_jwt = false

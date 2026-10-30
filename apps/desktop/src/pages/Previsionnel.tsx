@@ -225,6 +225,44 @@ export function Previsionnel() {
         <CompareView compare={compare} moisAn1={moisAn1} openingDate={openingDate} caOnly={caOnly} onToggleCaOnly={setCaOnly} />
       ) : (
         <>
+          {/* --- Objectif business plan vs rythme actuel (clair) --- */}
+          {(() => {
+            const objAn = initialModel.pc.an2;          // budget année pleine (HT)
+            const rythmeAn = liveModel.horizons.parAn;  // run-rate actuel (HT)
+            const ecart = objAn ? Math.round((rythmeAn / objAn - 1) * 100) : 0;
+            const audessus = rythmeAn >= objAn;
+            return (
+              <div className="card" style={{ marginBottom: "1.25rem" }}>
+                <h2 style={{ marginTop: 0 }}>Où tu en es vs ton plan</h2>
+                <div className="supplier-kpis">
+                  <div>
+                    <div className="muted">🎯 Objectif business plan<br /><span className="hint">année pleine de croisière · HT</span></div>
+                    <b>{fmt0(objAn)}</b>
+                  </div>
+                  <div>
+                    <div className="muted">🚀 Ton rythme actuel projeté<br /><span className="hint">cadence des 30 derniers jours sur 12 mois · HT</span></div>
+                    <b>{fmt0(rythmeAn)}</b>
+                  </div>
+                  <div>
+                    <div className="muted">Écart</div>
+                    <b style={{ color: audessus ? "var(--primary)" : "var(--error)", fontSize: "1.3rem" }}>
+                      {audessus ? "+" : ""}{ecart} %
+                    </b>
+                  </div>
+                </div>
+                <div className={`badge ${audessus ? "ok" : "warn"}`} style={{ marginTop: 8 }}>
+                  {audessus
+                    ? "Tu tournes AU-DESSUS de ton business plan 🎉"
+                    : "En-dessous du plan — normal en phase de lancement, le rythme monte"}
+                </div>
+                <div className="hint" style={{ marginTop: 8 }}>
+                  « Objectif » = la cible budgétée du business plan pour une année pleine.
+                  « Ton rythme actuel » = si tu gardes la cadence récente sur 12 mois (ce n'est pas un objectif, c'est une projection).
+                </div>
+              </div>
+            );
+          })()}
+
           {/* Base de calcul */}
           <div className="card" style={{ marginBottom: "1.25rem" }}>
             <span className={`badge ${reel ? "ok" : "warn"}`}>
@@ -265,7 +303,7 @@ export function Previsionnel() {
           </div>
 
           {/* Run-rate */}
-          <h2>Rythme réel extrapolé</h2>
+          <h2>Ton rythme actuel projeté <span className="hint" style={{ fontWeight: 400 }}>(si tu gardes cette cadence — ce n'est pas un objectif)</span></h2>
           <div className="kpis">
             <div className="kpi"><div className="kpi-label">CA HT / semaine</div><div className="kpi-value">{fmt0(model.horizons.parSemaine)}</div></div>
             <div className="kpi"><div className="kpi-label">CA HT / mois</div><div className="kpi-value">{fmt0(model.horizons.parMois)}</div></div>
